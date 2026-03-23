@@ -115,6 +115,8 @@ public:
   void jmp_imm32(int32_t relative_offset);
   void jnz_rel32(int32_t relative_offset);
 
+  void jmp_imm32_backpatch(void* jmp_instr_addr, int32_t relative_offset);
+
   void syscall();
 };
 

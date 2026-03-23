@@ -139,7 +139,7 @@ private:
 public:
   BFCompiler();
 
-  void compile_list_node(BFNodeList* node);
+  void compile_list_node(BFNodeList* node, bool is_entry);
 };
 
 class BFProgramExecutor {

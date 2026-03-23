@@ -182,6 +182,17 @@ void Assembler::jmp_imm32(int32_t relative_offset) {
   emit_immediate(immediate);
 }
 
+void Assembler::jmp_imm32_backpatch(void* jmp_instr_addr, int32_t relative_offset) {
+  // The jmp_instr_addr points to the end of the jmp instruction, so we need to
+  // "go back" the size of the instruction, which is 5 bytes, to get to the actual
+  // instruction. However, we just go back 4 bytes, since we want to patch the immediate.
+  char* jmp_instr = (char*)jmp_instr_addr - 4;
+  *(jmp_instr + 0) = (uint8_t)(relative_offset >> 0);
+  *(jmp_instr + 1) = (uint8_t)(relative_offset >> 8);
+  *(jmp_instr + 2) = (uint8_t)(relative_offset >> 16);
+  *(jmp_instr + 3) = (uint8_t)(relative_offset >> 24);
+}
+
 void Assembler::jnz_rel32(int32_t relative_offset) {
   const uint8_t opcode_1 = 0x0F;
   const uint8_t opcode_0 = 0x85;
@@ -191,6 +202,7 @@ void Assembler::jnz_rel32(int32_t relative_offset) {
   _code_blob->emit_byte(opcode_0);
   emit_immediate(immediate);
 }
+
 
 void Assembler::syscall() {
   const uint8_t opcode_1 = 0x0F;

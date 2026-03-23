@@ -247,10 +247,10 @@ void BFInterpreter::interpret_node(BFNode* node) {
 }
 
 BFCompiler::BFCompiler()
-  : _code_blob(2 * 1024),
+  : _code_blob(2 * 1024 * 1024),
     _assembler(&_code_blob) {}
 
-void BFCompiler::compile_list_node(BFNodeList* node) {
+void BFCompiler::compile_list_node(BFNodeList* node, bool is_entry) {
   if (node->compiled_method() != nullptr) {
     // Node already has a compiled method
     return;
@@ -269,10 +269,24 @@ void BFCompiler::compile_list_node(BFNodeList* node) {
   _assembler.mov_mem64_to_reg64(data_pointer_reg, Assembler::Register::A); // mov rax, [rsi]
   _assembler.mov_mem8_reg8disp_to_reg8(Assembler::Register::A, data_array_reg, Assembler::Register::A), // mov rax, [rdi+rax]
   _assembler.test_reg8(Assembler::Register::A);
-  _assembler.jnz_rel32(1);
 
-  // Return block
-  _assembler.ret_near();
+  void* backpatch_jmp_addr = nullptr;
+
+  if (is_entry) {
+    // If this is the entry loop, then we just emit a return instruction to return
+    // back to the VM/interpreter
+    _assembler.jnz_rel32(1);
+    _assembler.ret_near();
+  } else {
+    // If this is not the entry loop, we're inside a nested loop, so the "return"
+    // condition should jump to the instruction just after the current loop. One
+    // way to achieve this is to emit an instruction and then "backpatch" it to
+    // jump to the "right" offset.
+    // TODO: Emit jump and store to backpatch array
+    _assembler.jnz_rel32(5);
+    _assembler.jmp_imm32(0);
+    backpatch_jmp_addr = _code_blob.get_current_entrypoint();
+  }
 
   for (BFNode* n : *node->nodes()) {
     BFNodeLeaf* node_leaf = static_cast<BFNodeLeaf*>(n);
@@ -322,8 +336,11 @@ void BFCompiler::compile_list_node(BFNodeList* node) {
 
       _assembler.pop_reg(data_pointer_reg);
       _assembler.pop_reg(data_array_reg);
+    } else if (n->kind() == BFNodeKind::LOOP) {
+      compile_list_node((BFNodeList*)n, false);
     }
   }
+
 
   void* loop_body_end = _code_blob.get_current_entrypoint();
   int relative_offset_to_zero_check = (uintptr_t)loop_body_end - (uintptr_t)zero_check_start;
@@ -331,13 +348,24 @@ void BFCompiler::compile_list_node(BFNodeList* node) {
 
   _assembler.jmp_imm32(-relative_offset_to_zero_check);
 
-  void* method_end = _code_blob.get_current_entrypoint();
-  size_t method_size = (uintptr_t)method_end - (uintptr_t)entrypoint;
+  if (is_entry) {
+    // Only install the compiled method for the entry loop node
+    void* method_end = _code_blob.get_current_entrypoint();
+    size_t method_size = (uintptr_t)method_end - (uintptr_t)entrypoint;
 
-  BFCompiledMethod* compiled_method = new BFCompiledMethod((JITFn)entrypoint, method_size);
-  node->set_compiled_method(compiled_method);
+    BFCompiledMethod* compiled_method = new BFCompiledMethod((JITFn)entrypoint, method_size);
+    node->set_compiled_method(compiled_method);
 
-  compiled_method->print_method(false);
+    compiled_method->print_method(false);
+  } else {
+    assert(backpatch_jmp_addr != nullptr);
+
+    // Calculate the jmp offset for the backpatch
+    void* nested_loop_end = _code_blob.get_current_entrypoint();
+    int relative_offset_to_jmp = (uintptr_t)nested_loop_end - (uintptr_t)backpatch_jmp_addr;
+
+    _assembler.jmp_imm32_backpatch(backpatch_jmp_addr, relative_offset_to_jmp);
+  }
 }
 
 BFProgramExecutor::BFProgramExecutor(BFAST* ast, const std::string& program_input)
@@ -345,7 +373,7 @@ BFProgramExecutor::BFProgramExecutor(BFAST* ast, const std::string& program_inpu
     _compiler(),
     _ast(ast),
     _data_pointer(0),
-    _data(10, 0),
+    _data(30000, 0),
     _current_input_idx(0),
     _input(program_input) {}
 
@@ -357,7 +385,7 @@ void BFProgramExecutor::execute() {
       BFNodeList* list_node = static_cast<BFNodeList*>(n);
       BFCompiledMethod* compiled_method = list_node->compiled_method();
       if (compiled_method == nullptr) {
-        //_compiler.compile_list_node(list_node);
+        _compiler.compile_list_node(list_node, true);
         compiled_method = list_node->compiled_method();
       }
 
