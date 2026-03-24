@@ -103,12 +103,13 @@ public:
   void mov_reg64_to_reg64(Register source, Register dest);
   void mov_mem64_to_reg64(Register source, Register dest);
   void mov_mem8_reg8disp_to_reg8(Register dest, Register base, Register index);
-  void mov_imm32_reg32(uint32_t value, Register dest);
+  void mov_imm32_reg32(uint32_t immediate, Register dest);
 
-  void sub_imm8_mem8(uint8_t value, Register dest);
-  void sub_imm8_mem8(uint8_t value, Register base, Register index);
-  void add_imm8_mem8(uint8_t value, Register dest);
-  void add_imm8_mem8(uint8_t value, Register base, Register index);
+  void sub_imm8_mem8(uint8_t immediate, Register base, Register index);
+  void sub_imm8_mem32(uint8_t immediate, Register dest);
+
+  void add_imm8_mem8(uint8_t immediate, Register base, Register index);
+  void add_imm8_mem32(uint8_t immediate, Register dest);
 
   void test_reg8(Register reg);
 

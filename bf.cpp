@@ -47,10 +47,10 @@ BFNodeLeaf::BFNodeLeaf(BFNodeKind kind) : BFNode(kind), _count(1) {}
 
 void BFNodeLeaf::print(size_t indentation) const {
   for (int i = 0; i < indentation; i++) std::cout << " ";
-  std::cout << static_cast<char>(kind()) << " (" << _count << ")" << std::endl;
+  std::cout << static_cast<char>(kind()) << " (" << (size_t)_count << ")" << std::endl;
 }
 
-void BFNodeLeaf::increment_count() { _count++; }
+void BFNodeLeaf::increment_count() { assert(_count < (uint8_t)-1); _count++; }
 uint8_t BFNodeLeaf::count() const { return _count; }
 
 BFNodeList::BFNodeList(NodeList children)
@@ -291,9 +291,9 @@ void BFCompiler::compile_list_node(BFNodeList* node, bool is_entry) {
   for (BFNode* n : *node->nodes()) {
     BFNodeLeaf* node_leaf = static_cast<BFNodeLeaf*>(n);
     if (n->kind() == BFNodeKind::DEC_DP) {
-      _assembler.sub_imm8_mem8(node_leaf->count(), data_pointer_reg);
+      _assembler.sub_imm8_mem32(node_leaf->count(), data_pointer_reg);
     } else if (n->kind() == BFNodeKind::INC_DP) {
-      _assembler.add_imm8_mem8(node_leaf->count(), data_pointer_reg);
+      _assembler.add_imm8_mem32(node_leaf->count(), data_pointer_reg);
     } else if (n->kind() == BFNodeKind::DEC_BYTE) {
       _assembler.mov_mem64_to_reg64(data_pointer_reg, Assembler::Register::A);
       _assembler.sub_imm8_mem8(node_leaf->count(), data_array_reg, Assembler::Register::A);
@@ -340,7 +340,6 @@ void BFCompiler::compile_list_node(BFNodeList* node, bool is_entry) {
       compile_list_node((BFNodeList*)n, false);
     }
   }
-
 
   void* loop_body_end = _code_blob.get_current_entrypoint();
   int relative_offset_to_zero_check = (uintptr_t)loop_body_end - (uintptr_t)zero_check_start;
@@ -453,7 +452,7 @@ int main(int argc, const char** argv) {
 
   BFOptimizer::apply_run_length_encoding(ast.nodes());
   //printf("After optimization:\n");
-  //ast.print();
+  ast.print();
 
   BFProgramExecutor executor(&ast, program_input);
   executor.execute();

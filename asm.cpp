@@ -1,6 +1,6 @@
 
-#include <cstdio>
 #include <cassert>
+#include <cstdio>
 #include <sys/mman.h>
 
 #include "asm.hpp"
@@ -46,7 +46,10 @@ template <typename T>
 void Assembler::emit_immediate(T immediate) {
   for (size_t i = 0; i < sizeof(T); i++) {
     _code_blob->emit_byte((uint8_t)immediate);
-    immediate >>= 8;
+
+    if (sizeof(T) * 8 > 8) {
+      immediate >>= 8;
+    }
   }
 }
 
@@ -103,25 +106,16 @@ void Assembler::mov_mem8_reg8disp_to_reg8(Register dest, Register base, Register
   _code_blob->emit_byte(sib);
 }
 
-void Assembler::mov_imm32_reg32(uint32_t value, Register dest) {
+void Assembler::mov_imm32_reg32(uint32_t immediate, Register dest) {
   uint8_t dest_b = (uint8_t)dest;
 
   const uint8_t opcode = 0xB8 + (uint8_t)dest;
 
   _code_blob->emit_byte(opcode);
-  emit_immediate(value);
+  emit_immediate(immediate);
 }
 
-void Assembler::sub_imm8_mem8(uint8_t value, Register dest) {
-  const uint8_t opcode = 0x80;
-  const uint8_t modrm = build_modrm(ModRM::MemNoDisplacement, (uint8_t)ModRMExtension::SUB, (uint8_t)dest);
-
-  _code_blob->emit_byte(opcode);
-  _code_blob->emit_byte(modrm);
-  _code_blob->emit_byte(value);
-}
-
-void Assembler::sub_imm8_mem8(uint8_t value, Register base, Register index) {
+void Assembler::sub_imm8_mem8(uint8_t immediate, Register base, Register index) {
   // 80 /5 ib
   // 81 is the opcode
   // /5 says that the reg bits should be set to 5 (0b101)
@@ -136,24 +130,20 @@ void Assembler::sub_imm8_mem8(uint8_t value, Register base, Register index) {
   _code_blob->emit_byte(opcode);
   _code_blob->emit_byte(modrm);
   _code_blob->emit_byte(sib);
-  _code_blob->emit_byte(value);
+  emit_immediate(immediate);
 }
 
-void Assembler::add_imm8_mem8(uint8_t value, Register dest) {
-  // 80 /0 ib
-  // 81 is the opcode
-  // /0 says that the reg bits should be set to 0 (0b000)
-  // ib = immediate byte
-
-  const uint8_t opcode = 0x80;
-  const uint8_t modrm = build_modrm(ModRM::MemNoDisplacement, (uint8_t)ModRMExtension::ADD, (uint8_t)dest);
+void Assembler::sub_imm8_mem32(uint8_t immediate, Register dest) {
+  // 83 /5 ib
+  const uint8_t opcode = 0x83;
+  const uint8_t modrm = build_modrm(ModRM::MemNoDisplacement, (uint8_t)ModRMExtension::SUB, (uint8_t)dest);
 
   _code_blob->emit_byte(opcode);
   _code_blob->emit_byte(modrm);
-  _code_blob->emit_byte(value);
+  emit_immediate(immediate);
 }
 
-void Assembler::add_imm8_mem8(uint8_t value, Register base, Register index) {
+void Assembler::add_imm8_mem8(uint8_t immediate, Register base, Register index) {
   const uint8_t opcode = 0x80;
   const uint8_t modrm = build_modrm(ModRM::MemNoDisplacement, (uint8_t)ModRMExtension::ADD, SIBEnable);
 
@@ -163,7 +153,17 @@ void Assembler::add_imm8_mem8(uint8_t value, Register base, Register index) {
   _code_blob->emit_byte(opcode);
   _code_blob->emit_byte(modrm);
   _code_blob->emit_byte(sib);
-  _code_blob->emit_byte(value);
+  emit_immediate(immediate);
+}
+
+void Assembler::add_imm8_mem32(uint8_t immediate, Register dest) {
+  // 83 /0 ib
+  const uint8_t opcode = 0x83;
+  const uint8_t modrm = build_modrm(ModRM::MemNoDisplacement, (uint8_t)ModRMExtension::ADD, (uint8_t)dest);
+
+  _code_blob->emit_byte(opcode);
+  _code_blob->emit_byte(modrm);
+  emit_immediate(immediate);
 }
 
 void Assembler::test_reg8(Register reg) {
@@ -183,14 +183,17 @@ void Assembler::jmp_imm32(int32_t relative_offset) {
 }
 
 void Assembler::jmp_imm32_backpatch(void* jmp_instr_addr, int32_t relative_offset) {
-  // The jmp_instr_addr points to the end of the jmp instruction, so we need to
-  // "go back" the size of the instruction, which is 5 bytes, to get to the actual
+  // jmp_instr_addr points to the end of the jmp instruction, so we need to "go
+  // back" the size of the instruction, which is 5 bytes, to get to the actual
   // instruction. However, we just go back 4 bytes, since we want to patch the immediate.
-  char* jmp_instr = (char*)jmp_instr_addr - 4;
-  *(jmp_instr + 0) = (uint8_t)(relative_offset >> 0);
-  *(jmp_instr + 1) = (uint8_t)(relative_offset >> 8);
-  *(jmp_instr + 2) = (uint8_t)(relative_offset >> 16);
-  *(jmp_instr + 3) = (uint8_t)(relative_offset >> 24);
+
+  const uint32_t immediate = twos_complement(relative_offset);
+  char* const jmp_instr = (char*)jmp_instr_addr - 4;
+
+  *(jmp_instr + 0) = (uint8_t)(immediate >> 0);
+  *(jmp_instr + 1) = (uint8_t)(immediate >> 8);
+  *(jmp_instr + 2) = (uint8_t)(immediate >> 16);
+  *(jmp_instr + 3) = (uint8_t)(immediate >> 24);
 }
 
 void Assembler::jnz_rel32(int32_t relative_offset) {
@@ -202,7 +205,6 @@ void Assembler::jnz_rel32(int32_t relative_offset) {
   _code_blob->emit_byte(opcode_0);
   emit_immediate(immediate);
 }
-
 
 void Assembler::syscall() {
   const uint8_t opcode_1 = 0x0F;
