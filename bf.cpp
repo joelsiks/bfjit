@@ -17,17 +17,17 @@ size_t BFCompiledMethod::bytes() const { return _bytes; }
 void BFCompiledMethod::print_method(bool print_address) const {
   printf("Compiled method %p size %zu:\n", _compiled_method, _bytes);
   for (size_t i = 0; i < _bytes; i++) {
-      if (i % 8 == 0) {
-        if (i != 0) {
-          printf("\n");
-        }
-
-        if (print_address) {
-          printf("%08lx: ", (uint64_t)((uint8_t*)_compiled_method + i));
-        }
+    if (i % 8 == 0) {
+      if (i != 0) {
+        printf("\n");
       }
 
-      printf("%02x ", ((uint8_t*)_compiled_method)[i]);
+      if (print_address) {
+        printf("%08lx: ", (uint64_t)((uint8_t*)_compiled_method + i));
+      }
+    }
+
+    printf("%02x ", ((uint8_t*)_compiled_method)[i]);
   }
   printf("\n");
 }
@@ -291,9 +291,9 @@ void BFCompiler::compile_list_node(BFNodeList* node, bool is_entry) {
   for (BFNode* n : *node->nodes()) {
     BFNodeLeaf* node_leaf = static_cast<BFNodeLeaf*>(n);
     if (n->kind() == BFNodeKind::DEC_DP) {
-      _assembler.sub_imm8_mem32(node_leaf->count(), data_pointer_reg);
+      _assembler.sub_imm8_mem32((uint32_t)node_leaf->count(), data_pointer_reg);
     } else if (n->kind() == BFNodeKind::INC_DP) {
-      _assembler.add_imm8_mem32(node_leaf->count(), data_pointer_reg);
+      _assembler.add_imm8_mem32((uint32_t)node_leaf->count(), data_pointer_reg);
     } else if (n->kind() == BFNodeKind::DEC_BYTE) {
       _assembler.mov_mem64_to_reg64(data_pointer_reg, Assembler::Register::A);
       _assembler.sub_imm8_mem8(node_leaf->count(), data_array_reg, Assembler::Register::A);
@@ -305,6 +305,7 @@ void BFCompiler::compile_list_node(BFNodeList* node, bool is_entry) {
       _assembler.push_reg(data_pointer_reg);
 
       // Address is stored in rsi
+      _assembler.add_mem64_reg64(Assembler::Register::SI, Assembler::Register::DI);
       _assembler.mov_reg64_to_reg64(Assembler::Register::DI, Assembler::Register::SI);
 
       // The number of the syscall is stored in rax
@@ -323,6 +324,7 @@ void BFCompiler::compile_list_node(BFNodeList* node, bool is_entry) {
       _assembler.push_reg(data_pointer_reg);
 
       // Address is stored in rsi
+      _assembler.add_mem64_reg64(Assembler::Register::SI, Assembler::Register::DI);
       _assembler.mov_reg64_to_reg64(Assembler::Register::DI, Assembler::Register::SI);
 
       // The number of the syscall is stored in rax
@@ -355,7 +357,7 @@ void BFCompiler::compile_list_node(BFNodeList* node, bool is_entry) {
     BFCompiledMethod* compiled_method = new BFCompiledMethod((JITFn)entrypoint, method_size);
     node->set_compiled_method(compiled_method);
 
-    compiled_method->print_method(false);
+    //compiled_method->print_method(false);
   } else {
     assert(backpatch_jmp_addr != nullptr);
 
@@ -391,7 +393,8 @@ void BFProgramExecutor::execute() {
       if (compiled_method != nullptr) {
         // If the list node had a compiled method, call it and continue to the
         // next node
-        (*compiled_method->method())(_data.data(), &_data_pointer);
+        uint8_t* data = _data.data();
+        (*compiled_method->method())(data, &_data_pointer);
         continue;
       }
     }
@@ -452,7 +455,7 @@ int main(int argc, const char** argv) {
 
   BFOptimizer::apply_run_length_encoding(ast.nodes());
   //printf("After optimization:\n");
-  ast.print();
+  //ast.print();
 
   BFProgramExecutor executor(&ast, program_input);
   executor.execute();

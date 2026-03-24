@@ -110,6 +110,7 @@ public:
 
   void add_imm8_mem8(uint8_t immediate, Register base, Register index);
   void add_imm8_mem32(uint8_t immediate, Register dest);
+  void add_mem64_reg64(Register source, Register dest);
 
   void test_reg8(Register reg);
 

@@ -116,11 +116,6 @@ void Assembler::mov_imm32_reg32(uint32_t immediate, Register dest) {
 }
 
 void Assembler::sub_imm8_mem8(uint8_t immediate, Register base, Register index) {
-  // 80 /5 ib
-  // 81 is the opcode
-  // /5 says that the reg bits should be set to 5 (0b101)
-  // ib = immediate byte
-
   const uint8_t opcode = 0x80;
   const uint8_t modrm = build_modrm(ModRM::MemNoDisplacement, (uint8_t)ModRMExtension::SUB, SIBEnable);
 
@@ -134,7 +129,6 @@ void Assembler::sub_imm8_mem8(uint8_t immediate, Register base, Register index) 
 }
 
 void Assembler::sub_imm8_mem32(uint8_t immediate, Register dest) {
-  // 83 /5 ib
   const uint8_t opcode = 0x83;
   const uint8_t modrm = build_modrm(ModRM::MemNoDisplacement, (uint8_t)ModRMExtension::SUB, (uint8_t)dest);
 
@@ -157,13 +151,22 @@ void Assembler::add_imm8_mem8(uint8_t immediate, Register base, Register index) 
 }
 
 void Assembler::add_imm8_mem32(uint8_t immediate, Register dest) {
-  // 83 /0 ib
   const uint8_t opcode = 0x83;
   const uint8_t modrm = build_modrm(ModRM::MemNoDisplacement, (uint8_t)ModRMExtension::ADD, (uint8_t)dest);
 
   _code_blob->emit_byte(opcode);
   _code_blob->emit_byte(modrm);
   emit_immediate(immediate);
+}
+
+void Assembler::add_mem64_reg64(Register source, Register dest) {
+  const uint8_t rex = 0x40 | (uint8_t)RexMode::W;
+  const uint8_t opcode = 0x03;
+  const uint8_t modrm = build_modrm(ModRM::MemNoDisplacement, (uint8_t)dest, (uint8_t)source);
+
+  _code_blob->emit_byte(rex);
+  _code_blob->emit_byte(opcode);
+  _code_blob->emit_byte(modrm);
 }
 
 void Assembler::test_reg8(Register reg) {
