@@ -33,15 +33,22 @@ public:
   void print_method(bool print_address) const;
 };
 
-enum class BFNodeKind : char {
-  DEC_DP    = '<',
-  INC_DP    = '>',
-  INC_BYTE  = '+',
-  DEC_BYTE  = '-',
-  OUTPUT_DP = '.',
-  INPUT_DP  = ',',
-  LOOP      = '[',
+enum class BFNodeKind {
+  // Associated with input characters
+  DpInc,
+  DpDec,
+  ByteInc,
+  ByteDec,
+  DpOutput,
+  DpInput,
+  Loop,
+
+  // Extensions
+  Clear,
+  MoveFrom,
 };
+
+const char* node_kind_name(BFNodeKind kind);
 
 class BFNode {
 protected:
@@ -55,12 +62,12 @@ public:
   virtual void print(size_t indentation) const;
 };
 
-class BFNodeLeaf : public BFNode {
+class BFCountNode : public BFNode {
 private:
   uint8_t _count;
 
 public:
-  BFNodeLeaf(BFNodeKind kind);
+  BFCountNode(BFNodeKind kind);
 
   void print(size_t indentation) const override;
 
@@ -68,20 +75,25 @@ public:
   uint8_t count() const;
 };
 
-class BFNodeList : public BFNode {
+class BFLoopNode : public BFNode {
 private:
   NodeList _nodes;
   BFCompiledMethod* _compiled_method;
 
 public:
-  BFNodeList(NodeList children);
-  ~BFNodeList() override;
+  BFLoopNode(NodeList children);
+  ~BFLoopNode() override;
 
   NodeList* nodes();
   BFCompiledMethod* compiled_method();
   void set_compiled_method(BFCompiledMethod* compiled_method);
 
   void print(size_t indentation) const override;
+};
+
+class BFClearNode : public BFNode {
+public:
+  BFClearNode();
 };
 
 class BFAST {
@@ -96,12 +108,15 @@ public:
   void print() const;
 };
 
+
+// Cast utility
+inline BFCountNode* as_count_node(BFNode* n) { return static_cast<BFCountNode*>(n); }
+inline BFLoopNode* as_loop_node(BFNode* n) { return static_cast<BFLoopNode*>(n); }
+
 class BFParser {
 private:
   std::string _program;
   size_t _num_data_slots;
-
-  static bool is_valid_character(char c);
 
 public:
   BFParser(const std::string& program);
@@ -112,7 +127,7 @@ public:
 class BFOptimizer {
 public:
   static void apply_run_length_encoding(NodeList* list);
-  static void constant_folding(NodeList* list);
+  static void detect_clear_cell(NodeList* list);
 
   // TODO: Some optimization pass that detects whether to pass the data pointer
   // by reference or by value to the compiled method. By reference means we need
@@ -139,7 +154,7 @@ private:
 public:
   BFCompiler();
 
-  void compile_list_node(BFNodeList* node, bool is_entry);
+  void compile_list_node(BFLoopNode* node, bool is_entry);
 };
 
 class BFProgramExecutor {

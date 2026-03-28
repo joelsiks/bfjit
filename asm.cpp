@@ -115,6 +115,19 @@ void Assembler::mov_imm32_reg32(uint32_t immediate, Register dest) {
   emit_immediate(immediate);
 }
 
+void Assembler::mov_imm8_mem8(uint8_t immediate, Register base, Register index) {
+  // C6 /0 ib
+  const uint8_t opcode = 0xC6;
+  const uint8_t modrm = build_modrm(ModRM::MemNoDisplacement, 0b000, SIBEnable);
+  const uint8_t sib_scaling = (uint8_t)SIBScaling::One << 6;
+  const uint8_t sib = (sib_scaling | ((uint8_t)index << 3) | (uint8_t)base);
+
+  _code_blob->emit_byte(opcode);
+  _code_blob->emit_byte(modrm);
+  _code_blob->emit_byte(sib);
+  emit_immediate(immediate);
+}
+
 void Assembler::sub_imm8_mem8(uint8_t immediate, Register base, Register index) {
   const uint8_t opcode = 0x80;
   const uint8_t modrm = build_modrm(ModRM::MemNoDisplacement, (uint8_t)ModRMExtension::SUB, SIBEnable);

@@ -6,6 +6,21 @@
 
 #include "bf.hpp"
 
+const char* node_kind_name(BFNodeKind kind) {
+  switch (kind) {
+    case BFNodeKind::DpInc:    return "DpInc";
+    case BFNodeKind::DpDec:    return "DpDec";
+    case BFNodeKind::ByteInc:  return "ByteInc";
+    case BFNodeKind::ByteDec:  return "ByteDec";
+    case BFNodeKind::DpOutput: return "Output";
+    case BFNodeKind::DpInput:  return "Input";
+    case BFNodeKind::Loop:     return "Loop";
+    case BFNodeKind::Clear:    return "Clear";
+    case BFNodeKind::MoveFrom: return "MoveFrom";
+    default: assert(false);
+  }
+};
+
 BFCompiledMethod::BFCompiledMethod(JITFn compiled_method, size_t bytes)
   : _compiled_method(compiled_method),
     _bytes(bytes) {}
@@ -40,44 +55,45 @@ BFNodeKind BFNode::kind() const { return _kind; }
 
 void BFNode::print(size_t indentation) const {
   for (int i = 0; i < indentation; i++) std::cout << " ";
-  std::cout << static_cast<char>(kind()) << std::endl;
+  std::cout << node_kind_name(_kind) << std::endl;
 }
 
-BFNodeLeaf::BFNodeLeaf(BFNodeKind kind) : BFNode(kind), _count(1) {}
+BFCountNode::BFCountNode(BFNodeKind kind) : BFNode(kind), _count(1) {}
 
-void BFNodeLeaf::print(size_t indentation) const {
+void BFCountNode::print(size_t indentation) const {
   for (int i = 0; i < indentation; i++) std::cout << " ";
-  std::cout << static_cast<char>(kind()) << " (" << (size_t)_count << ")" << std::endl;
+  std::cout << node_kind_name(kind()) << " (" << (size_t)_count << ")" << std::endl;
 }
 
-void BFNodeLeaf::increment_count() { assert(_count < (uint8_t)-1); _count++; }
-uint8_t BFNodeLeaf::count() const { return _count; }
+void BFCountNode::increment_count() { assert(_count < (uint8_t)-1); _count++; }
+uint8_t BFCountNode::count() const { return _count; }
 
-BFNodeList::BFNodeList(NodeList children)
-  : BFNode(BFNodeKind::LOOP),
+BFLoopNode::BFLoopNode(NodeList children)
+  : BFNode(BFNodeKind::Loop),
     _nodes(children),
     _compiled_method(nullptr) {}
 
-BFNodeList::~BFNodeList() {
+BFLoopNode::~BFLoopNode() {
   for (const BFNode* n : _nodes) {
     delete n;
   }
 }
 
-NodeList* BFNodeList::nodes() { return &_nodes; }
+NodeList* BFLoopNode::nodes() { return &_nodes; }
 
-BFCompiledMethod* BFNodeList::compiled_method() { return _compiled_method; }
+BFCompiledMethod* BFLoopNode::compiled_method() { return _compiled_method; }
 
-void BFNodeList::set_compiled_method(BFCompiledMethod* compiled_method) { _compiled_method = compiled_method; }
+void BFLoopNode::set_compiled_method(BFCompiledMethod* compiled_method) { _compiled_method = compiled_method; }
 
-void BFNodeList::print(size_t indentation) const {
+void BFLoopNode::print(size_t indentation) const {
   BFNode::print(indentation);
   for (const BFNode* n : _nodes) {
     n->print(indentation + 1);
   }
-  for (int i = 0; i < indentation; i++) std::cout << " ";
-  std::cout << ']' << std::endl;
 }
+
+BFClearNode::BFClearNode()
+  : BFNode(BFNodeKind::Clear) {}
 
 BFAST::BFAST(NodeList&& nodes) : _nodes(nodes) {}
 
@@ -95,53 +111,37 @@ void BFAST::print() const {
   }
 }
 
-bool BFParser::is_valid_character(char c) {
-  switch (c) {
-    case static_cast<char>(BFNodeKind::INC_DP):
-    case static_cast<char>(BFNodeKind::DEC_DP):
-    case static_cast<char>(BFNodeKind::INC_BYTE):
-    case static_cast<char>(BFNodeKind::DEC_BYTE):
-    case static_cast<char>(BFNodeKind::OUTPUT_DP):
-    case static_cast<char>(BFNodeKind::INPUT_DP):
-    case static_cast<char>(BFNodeKind::LOOP):
-    case ']': // Used as a parsing signal
-      return true;
-    default:
-      return false;
-  };
-}
-
 BFParser::BFParser(const std::string& program) : _program(program) { }
 
 BFAST BFParser::parse() {
-  // Stack based lists
   std::stack<std::vector<BFNode*>> node_lists;
   node_lists.emplace();
 
   for (char c : _program) {
-    if (!is_valid_character(c)) {
-      continue;
-    }
+    switch (c) {
+      case '[':
+        node_lists.emplace();
+        break;
+      case ']': {
+        // Detect un-matching loops
+        if (node_lists.size() == 1) {
+          printf("Invalid loop end '%s'\n", _program.c_str());
+          exit(1);
+        }
 
-    if (c == '[') {
-      // Start a new loop, push a new list of nodes to the "stack"
-      node_lists.emplace();
-    } else if (c == ']') {
-      // Detect un-matching loops
-      if (node_lists.size() == 1) {
-        printf("Invalid loop end '%s'\n", _program.c_str());
-        exit(1);
+        // End of a loop, pop the list from the stack onto the new node
+        BFLoopNode* node = new BFLoopNode(node_lists.top());
+        node_lists.pop();
+        node_lists.top().push_back(node);
+        break;
       }
-
-      // End of a loop, pop the list from the stack onto the new node
-      BFNodeList* node = new BFNodeList(node_lists.top());
-      node_lists.pop();
-      node_lists.top().push_back(node);
-    } else {
-      // Any other node than a loop start/end. Push a new node
-      BFNodeKind kind = static_cast<BFNodeKind>(c);
-      BFNodeLeaf* node = new BFNodeLeaf(kind);
-      node_lists.top().push_back(node);
+      case '>': node_lists.top().push_back(new BFCountNode(BFNodeKind::DpInc)); break;
+      case '<': node_lists.top().push_back(new BFCountNode(BFNodeKind::DpDec)); break;
+      case '+': node_lists.top().push_back(new BFCountNode(BFNodeKind::ByteInc)); break;
+      case '-': node_lists.top().push_back(new BFCountNode(BFNodeKind::ByteDec)); break;
+      case '.': node_lists.top().push_back(new BFCountNode(BFNodeKind::DpOutput)); break;
+      case ',': node_lists.top().push_back(new BFCountNode(BFNodeKind::DpInput)); break;
+      default: continue; // Skip comment and whitespace
     }
   }
 
@@ -170,14 +170,14 @@ void BFOptimizer::apply_run_length_encoding(NodeList* list) {
   for (size_t i = 0; i < list->size(); i++) {
     BFNode* current = list->at(i);
 
-    if (current->kind() == BFNodeKind::LOOP) {
-      BFNodeList* loop_node = static_cast<BFNodeList*>(current);
+    if (current->kind() == BFNodeKind::Loop) {
+      BFLoopNode* loop_node = static_cast<BFLoopNode*>(current);
       apply_run_length_encoding(loop_node->nodes());
 
       last_node = nullptr;
     } else if (last_node != nullptr && last_node->kind() == current->kind()) {
       // Increment the count of the last node
-      BFNodeLeaf* leaf_node = static_cast<BFNodeLeaf*>(last_node);
+      BFCountNode* leaf_node = static_cast<BFCountNode*>(last_node);
       leaf_node->increment_count();
 
       // Delete the node's underlying memory and then remove the dangling pointer
@@ -194,8 +194,22 @@ void BFOptimizer::apply_run_length_encoding(NodeList* list) {
   }
 }
 
-void BFOptimizer::constant_folding(NodeList* list) {
-  // TODO: Implement this
+void BFOptimizer::detect_clear_cell(NodeList* list) {
+  for (size_t i = 0; i < list->size(); i++) {
+    BFNode* current = list->at(i);
+    if (current->kind() == BFNodeKind::Loop) {
+      BFLoopNode* list_node = static_cast<BFLoopNode*>(current);
+      if (list_node->nodes()->size() == 1 &&
+          list_node->nodes()->at(0)->kind() == BFNodeKind::ByteDec) {
+        list_node->BFLoopNode::~BFLoopNode();
+        delete list_node;
+
+        list->at(i) = new BFClearNode();
+      } else {
+        detect_clear_cell(list_node->nodes());
+      }
+    }
+  }
 }
 
 BFInterpreter::BFInterpreter(BFProgramExecutor* executor)
@@ -203,8 +217,8 @@ BFInterpreter::BFInterpreter(BFProgramExecutor* executor)
 
 void BFInterpreter::interpret_node(BFNode* node) {
   // Handle loop node separately
-  if (node->kind() == BFNodeKind::LOOP) {
-    BFNodeList* loop_node = static_cast<BFNodeList*>(node);
+  if (node->kind() == BFNodeKind::Loop) {
+    BFLoopNode* loop_node = as_loop_node(node);
 
     while (_executor->current_data() != 0) {
       for (BFNode* n : *loop_node->nodes()) {
@@ -215,33 +229,40 @@ void BFInterpreter::interpret_node(BFNode* node) {
     return;
   }
 
-  BFNodeLeaf* leaf_node = static_cast<BFNodeLeaf*>(node);
+  BFCountNode* leaf_node = static_cast<BFCountNode*>(node);
   const uint8_t n = leaf_node->count();
 
   switch (node->kind()) {
-    case BFNodeKind::INC_DP:
+    case BFNodeKind::DpInc:
       _executor->increment_dp(n);
       break;
-    case BFNodeKind::DEC_DP:
+    case BFNodeKind::DpDec:
       _executor->decrement_dp(n);
       break;
-    case BFNodeKind::INC_BYTE:
+    case BFNodeKind::ByteInc:
       _executor->increment_byte(n);
       break;
-    case BFNodeKind::DEC_BYTE:
+    case BFNodeKind::ByteDec:
       _executor->decrement_byte(n);
       break;
-    case BFNodeKind::OUTPUT_DP:
+    case BFNodeKind::DpOutput:
       for (size_t i = 0; i < n; i++) {
         _executor->print_data();
       }
       break;
-    case BFNodeKind::INPUT_DP:
+    case BFNodeKind::DpInput:
       // No input string from the user, prompt the user for a character
       _executor->set_data((uint8_t)getchar());
       break;
-    case BFNodeKind::LOOP:
+    case BFNodeKind::Loop:
       assert(false); // Should not reach here...
+      break;
+    case BFNodeKind::Clear:
+      _executor->set_data(0);
+      break;
+    case BFNodeKind::MoveFrom:
+      // TODO: Implement
+      assert(false);
       break;
   }
 }
@@ -250,7 +271,7 @@ BFCompiler::BFCompiler()
   : _code_blob(2 * 1024 * 1024),
     _assembler(&_code_blob) {}
 
-void BFCompiler::compile_list_node(BFNodeList* node, bool is_entry) {
+void BFCompiler::compile_list_node(BFLoopNode* node, bool is_entry) {
   if (node->compiled_method() != nullptr) {
     // Node already has a compiled method
     return;
@@ -289,18 +310,18 @@ void BFCompiler::compile_list_node(BFNodeList* node, bool is_entry) {
   }
 
   for (BFNode* n : *node->nodes()) {
-    BFNodeLeaf* node_leaf = static_cast<BFNodeLeaf*>(n);
-    if (n->kind() == BFNodeKind::DEC_DP) {
-      _assembler.sub_imm8_mem32((uint32_t)node_leaf->count(), data_pointer_reg);
-    } else if (n->kind() == BFNodeKind::INC_DP) {
+    BFCountNode* node_leaf = static_cast<BFCountNode*>(n);
+    if (n->kind() == BFNodeKind::DpInc) {
       _assembler.add_imm8_mem32((uint32_t)node_leaf->count(), data_pointer_reg);
-    } else if (n->kind() == BFNodeKind::DEC_BYTE) {
-      _assembler.mov_mem64_to_reg64(data_pointer_reg, Assembler::Register::A);
-      _assembler.sub_imm8_mem8(node_leaf->count(), data_array_reg, Assembler::Register::A);
-    } else if (n->kind() == BFNodeKind::INC_BYTE) {
+    } else if (n->kind() == BFNodeKind::DpDec) {
+      _assembler.sub_imm8_mem32((uint32_t)node_leaf->count(), data_pointer_reg);
+    } else if (n->kind() == BFNodeKind::ByteInc) {
       _assembler.mov_mem64_to_reg64(data_pointer_reg, Assembler::Register::A);
       _assembler.add_imm8_mem8(node_leaf->count(), data_array_reg, Assembler::Register::A);
-    } else if (n->kind() == BFNodeKind::OUTPUT_DP) {
+    } else if (n->kind() == BFNodeKind::ByteDec) {
+      _assembler.mov_mem64_to_reg64(data_pointer_reg, Assembler::Register::A);
+      _assembler.sub_imm8_mem8(node_leaf->count(), data_array_reg, Assembler::Register::A);
+    } else if (n->kind() == BFNodeKind::DpOutput) {
       _assembler.push_reg(data_array_reg);
       _assembler.push_reg(data_pointer_reg);
 
@@ -319,7 +340,7 @@ void BFCompiler::compile_list_node(BFNodeList* node, bool is_entry) {
 
       _assembler.pop_reg(data_pointer_reg);
       _assembler.pop_reg(data_array_reg);
-    } else if (n->kind() == BFNodeKind::INPUT_DP) {
+    } else if (n->kind() == BFNodeKind::DpInput) {
       _assembler.push_reg(data_array_reg);
       _assembler.push_reg(data_pointer_reg);
 
@@ -338,8 +359,11 @@ void BFCompiler::compile_list_node(BFNodeList* node, bool is_entry) {
 
       _assembler.pop_reg(data_pointer_reg);
       _assembler.pop_reg(data_array_reg);
-    } else if (n->kind() == BFNodeKind::LOOP) {
-      compile_list_node((BFNodeList*)n, false);
+    } else if (n->kind() == BFNodeKind::Loop) {
+      compile_list_node((BFLoopNode*)n, false);
+    } else if (n->kind() == BFNodeKind::Clear) {
+      _assembler.mov_mem64_to_reg64(data_pointer_reg, Assembler::Register::A);
+      _assembler.mov_imm8_mem8(0, data_array_reg, Assembler::Register::A);
     }
   }
 
@@ -382,12 +406,12 @@ void BFProgramExecutor::execute() {
   for (BFNode* n : *_ast->nodes()) {
 
     // Compiled method check
-    if (n->kind() == BFNodeKind::LOOP) {
-      BFNodeList* list_node = static_cast<BFNodeList*>(n);
-      BFCompiledMethod* compiled_method = list_node->compiled_method();
+    if (n->kind() == BFNodeKind::Loop) {
+      BFLoopNode* loop_node = as_loop_node(n);
+      BFCompiledMethod* compiled_method = loop_node->compiled_method();
       if (compiled_method == nullptr) {
-        _compiler.compile_list_node(list_node, true);
-        compiled_method = list_node->compiled_method();
+        _compiler.compile_list_node(loop_node, true);
+        compiled_method = loop_node->compiled_method();
       }
 
       if (compiled_method != nullptr) {
@@ -430,7 +454,7 @@ uint8_t BFProgramExecutor::current_data() { return _data[_data_pointer]; }
 
 void BFProgramExecutor::debug_print() {
   printf("Data state:\n");
-  for (size_t i = 0; i < _data.size(); i++) {
+  for (size_t i = 0; i < 10; i++) {
     printf("data[%zu]: %d\n", i, _data[i]);
   }
 }
@@ -454,10 +478,11 @@ int main(int argc, const char** argv) {
   //ast.print();
 
   BFOptimizer::apply_run_length_encoding(ast.nodes());
+  BFOptimizer::detect_clear_cell(ast.nodes());
   //printf("After optimization:\n");
   //ast.print();
 
   BFProgramExecutor executor(&ast, program_input);
   executor.execute();
-  //executor.debug_print();
+  executor.debug_print();
 }
