@@ -108,7 +108,6 @@ public:
   void print() const;
 };
 
-
 // Cast utility
 inline BFCountNode* as_count_node(BFNode* n) { return static_cast<BFCountNode*>(n); }
 inline BFLoopNode* as_loop_node(BFNode* n) { return static_cast<BFLoopNode*>(n); }
@@ -138,10 +137,21 @@ public:
 
 class BFInterpreter {
 private:
-  BFProgramExecutor* _executor;
+  std::vector<uint8_t>* _data;
+  uint32_t* _data_pointer;
+
+  void increment_dp(uint32_t n);
+  void decrement_dp(uint32_t n);
+
+  void increment_byte(uint8_t n);
+  void decrement_byte(uint8_t n);
+
+  void print_data();
+  void set_data(uint8_t input);
+  uint8_t current_data();
 
 public:
-  BFInterpreter(BFProgramExecutor* executor);
+  BFInterpreter(std::vector<uint8_t>* data, uint32_t* data_pointer);
 
   void interpret_node(BFNode* node);
 };
@@ -161,12 +171,12 @@ class BFProgramExecutor {
   friend class BFInterpreter;
 
 private:
+  BFAST* _ast;
+  std::vector<uint8_t> _data;
+  uint32_t _data_pointer;
+
   BFInterpreter _interpreter;
   BFCompiler _compiler;
-
-  BFAST* _ast;
-  uint32_t _data_pointer;
-  std::vector<uint8_t> _data;
 
   size_t _current_input_idx;
   const std::string& _input;
@@ -175,16 +185,6 @@ public:
   BFProgramExecutor(BFAST* ast, const std::string& program_input);
 
   void execute();
-
-  void increment_dp(uint32_t n);
-  void decrement_dp(uint32_t n);
-
-  void increment_byte(uint8_t n);
-  void decrement_byte(uint8_t n);
-
-  void print_data();
-  void set_data(uint8_t input);
-  uint8_t current_data();
 
   void debug_print();
 };

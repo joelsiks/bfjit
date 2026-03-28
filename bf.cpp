@@ -1,10 +1,13 @@
 #include <cstdio>
+#include <cstring>
 #include <iostream>
 #include <cassert>
 
 #include <stack>
 
 #include "bf.hpp"
+
+static bool debug_mode = false;
 
 const char* node_kind_name(BFNodeKind kind) {
   switch (kind) {
@@ -212,15 +215,41 @@ void BFOptimizer::detect_clear_cell(NodeList* list) {
   }
 }
 
-BFInterpreter::BFInterpreter(BFProgramExecutor* executor)
-  : _executor(executor) {}
+void BFInterpreter::increment_dp(uint32_t n) {
+  *_data_pointer += n;
+  const size_t new_size = *_data_pointer + 1;
+  if (new_size > _data->size()) {
+    _data->resize(new_size);
+  }
+}
+
+void BFInterpreter::decrement_dp(uint32_t n) {
+  if (_data_pointer != 0) {
+    *_data_pointer -= n;
+  }
+}
+
+void BFInterpreter::increment_byte(uint8_t n) { _data->at(*_data_pointer) += n; }
+
+void BFInterpreter::decrement_byte(uint8_t n) { _data->at(*_data_pointer) -= n; }
+
+void BFInterpreter::print_data() { std::cout << (char)(_data->at(*_data_pointer)) << std::flush; }
+
+void BFInterpreter::set_data(uint8_t input) { _data->at(*_data_pointer) = input; }
+
+uint8_t BFInterpreter::current_data() { return _data->at(*_data_pointer); }
+
+
+BFInterpreter::BFInterpreter(std::vector<uint8_t>* data, uint32_t* data_pointer)
+  : _data(data),
+    _data_pointer(data_pointer) {}
 
 void BFInterpreter::interpret_node(BFNode* node) {
   // Handle loop node separately
   if (node->kind() == BFNodeKind::Loop) {
     BFLoopNode* loop_node = as_loop_node(node);
 
-    while (_executor->current_data() != 0) {
+    while (current_data() != 0) {
       for (BFNode* n : *loop_node->nodes()) {
         interpret_node(n);
       }
@@ -234,31 +263,31 @@ void BFInterpreter::interpret_node(BFNode* node) {
 
   switch (node->kind()) {
     case BFNodeKind::DpInc:
-      _executor->increment_dp(n);
+      increment_dp(n);
       break;
     case BFNodeKind::DpDec:
-      _executor->decrement_dp(n);
+      decrement_dp(n);
       break;
     case BFNodeKind::ByteInc:
-      _executor->increment_byte(n);
+      increment_byte(n);
       break;
     case BFNodeKind::ByteDec:
-      _executor->decrement_byte(n);
+      decrement_byte(n);
       break;
     case BFNodeKind::DpOutput:
       for (size_t i = 0; i < n; i++) {
-        _executor->print_data();
+        print_data();
       }
       break;
     case BFNodeKind::DpInput:
       // No input string from the user, prompt the user for a character
-      _executor->set_data((uint8_t)getchar());
+      set_data((uint8_t)getchar());
       break;
     case BFNodeKind::Loop:
       assert(false); // Should not reach here...
       break;
     case BFNodeKind::Clear:
-      _executor->set_data(0);
+      set_data(0);
       break;
     case BFNodeKind::MoveFrom:
       // TODO: Implement
@@ -381,7 +410,9 @@ void BFCompiler::compile_list_node(BFLoopNode* node, bool is_entry) {
     BFCompiledMethod* compiled_method = new BFCompiledMethod((JITFn)entrypoint, method_size);
     node->set_compiled_method(compiled_method);
 
-    //compiled_method->print_method(false);
+    if (debug_mode) {
+      compiled_method->print_method(false);
+    }
   } else {
     assert(backpatch_jmp_addr != nullptr);
 
@@ -394,11 +425,11 @@ void BFCompiler::compile_list_node(BFLoopNode* node, bool is_entry) {
 }
 
 BFProgramExecutor::BFProgramExecutor(BFAST* ast, const std::string& program_input)
-  : _interpreter(this),
-    _compiler(),
-    _ast(ast),
-    _data_pointer(0),
+  : _ast(ast),
     _data(30000, 0),
+    _data_pointer(0),
+    _interpreter(&_data, &_data_pointer),
+    _compiler(),
     _current_input_idx(0),
     _input(program_input) {}
 
@@ -428,30 +459,6 @@ void BFProgramExecutor::execute() {
   }
 }
 
-void BFProgramExecutor::increment_dp(uint32_t n) {
-  _data_pointer += n;
-  const size_t new_size = _data_pointer + 1;
-  if (new_size > _data.size()) {
-    _data.resize(new_size);
-  }
-}
-
-void BFProgramExecutor::decrement_dp(uint32_t n) {
-  if (_data_pointer != 0) {
-    _data_pointer -= n;
-  }
-}
-
-void BFProgramExecutor::increment_byte(uint8_t n) { _data[_data_pointer] += n; }
-
-void BFProgramExecutor::decrement_byte(uint8_t n) { _data[_data_pointer] -= n; }
-
-void BFProgramExecutor::print_data() { std::cout << (char)(_data[_data_pointer]) << std::flush; }
-
-void BFProgramExecutor::set_data(uint8_t input) { _data[_data_pointer] = input; }
-
-uint8_t BFProgramExecutor::current_data() { return _data[_data_pointer]; }
-
 void BFProgramExecutor::debug_print() {
   printf("Data state:\n");
   for (size_t i = 0; i < 10; i++) {
@@ -459,30 +466,55 @@ void BFProgramExecutor::debug_print() {
   }
 }
 
+static void print_helper(const char* debug_flag, const char* executable) {
+  printf("No input given. Usage: %s [%s] <program sequence>\n", debug_flag, executable);
+}
+
 int main(int argc, const char** argv) {
+  const char* debug_flag = "--debug";
+
   if (argc < 2) {
-    printf("No input given. Usage: %s <program sequence>\n", argv[0]);
+    print_helper(debug_flag, argv[0]);
     return 1;
   }
 
-  std::string program(argv[1]);
+  // Check if the first argument is the debug flag
+  if (strcmp(argv[1], debug_flag) == 0) {
+    // The second argument is the debug flag, check if there is a third argument or not
+    if (argc < 3) {
+      print_helper(debug_flag, argv[0]);
+      return 1;
+    }
+
+    debug_mode = true;
+  }
+
+  const int argv_offset = debug_mode ? 1 : 0;
+
+  std::string program(argv[1 + argv_offset]);
   std::string program_input;
 
   // Only set the program_input if the user has supplied it
-  if (argc > 2) {
-    program_input = argv[2];
+  if (argc > (2 + argv_offset)) {
+    program_input = argv[2 + argv_offset];
   }
 
   BFParser parser(program);
   BFAST ast = parser.parse();
-  //ast.print();
+  if (debug_mode) {
+    ast.print();
+  }
 
   BFOptimizer::apply_run_length_encoding(ast.nodes());
   BFOptimizer::detect_clear_cell(ast.nodes());
-  //printf("After optimization:\n");
-  //ast.print();
+  if (debug_mode) {
+    printf("After optimization:\n");
+    ast.print();
+  }
 
   BFProgramExecutor executor(&ast, program_input);
   executor.execute();
-  executor.debug_print();
+  if (debug_mode) {
+    executor.debug_print();
+  }
 }
