@@ -2,7 +2,6 @@
 #include <cstring>
 #include <iostream>
 #include <cassert>
-
 #include <stack>
 
 #include "bf.hpp"
@@ -424,8 +423,9 @@ void BFCompiler::compile_list_node(BFLoopNode* node, bool is_entry) {
   }
 }
 
-BFProgramExecutor::BFProgramExecutor(BFAST* ast, const std::string& program_input)
-  : _ast(ast),
+BFProgramExecutor::BFProgramExecutor(BFAST* ast, const std::string& program_input, BFProgramExecutor::ExecutionMode execution_mode)
+  : _execution_mode(execution_mode),
+    _ast(ast),
     _data(30000, 0),
     _data_pointer(0),
     _interpreter(&_data, &_data_pointer),
@@ -435,7 +435,6 @@ BFProgramExecutor::BFProgramExecutor(BFAST* ast, const std::string& program_inpu
 
 void BFProgramExecutor::execute() {
   for (BFNode* n : *_ast->nodes()) {
-
     // Compiled method check
     if (n->kind() == BFNodeKind::Loop) {
       BFLoopNode* loop_node = as_loop_node(n);
@@ -512,7 +511,7 @@ int main(int argc, const char** argv) {
     ast.print();
   }
 
-  BFProgramExecutor executor(&ast, program_input);
+  BFProgramExecutor executor(&ast, program_input, BFProgramExecutor::ExecutionMode::AOT);
   executor.execute();
   if (debug_mode) {
     executor.debug_print();

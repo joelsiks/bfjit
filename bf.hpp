@@ -168,9 +168,15 @@ public:
 };
 
 class BFProgramExecutor {
-  friend class BFInterpreter;
+public:
+  enum class ExecutionMode {
+    AheadOfTime,
+    Interpreter,
+    JustInTime
+  };
 
 private:
+  ExecutionMode _execution_mode;
   BFAST* _ast;
   std::vector<uint8_t> _data;
   uint32_t _data_pointer;
@@ -182,7 +188,8 @@ private:
   const std::string& _input;
 
 public:
-  BFProgramExecutor(BFAST* ast, const std::string& program_input);
+
+  BFProgramExecutor(BFAST* ast, const std::string& program_input, ExecutionMode execution_mode);
 
   void execute();
 
