@@ -3,8 +3,14 @@
 
 #include <cstdint>
 #include <cstdlib>
+#include <queue>
 #include <string>
 #include <vector>
+
+#include <mutex>
+#include <condition_variable>
+#include <thread>
+#include <atomic>
 
 #include "asm.hpp"
 
@@ -73,18 +79,28 @@ public:
   uint8_t count() const;
 };
 
+struct BFLoopProfile {
+  size_t _execution_count;
+  std::atomic<BFCompiledMethod*> _compiled_method;
+  std::atomic<bool> _compilation_queued;
+
+  BFLoopProfile();
+};
+
 class BFLoopNode : public BFNode {
 private:
   NodeList _nodes;
-  BFCompiledMethod* _compiled_method;
+  BFLoopProfile _profile;
 
 public:
   BFLoopNode(NodeList children);
   ~BFLoopNode() override;
 
   NodeList* nodes();
-  BFCompiledMethod* compiled_method();
   void set_compiled_method(BFCompiledMethod* compiled_method);
+  BFCompiledMethod* compiled_method();
+  BFLoopProfile* profile();
+  void inc_execution_count();
 
   void print(size_t indentation) const override;
 };
@@ -135,6 +151,7 @@ public:
 
 class BFInterpreter {
 private:
+  BFProgramExecutor* _program_executor;
   std::vector<uint8_t>* _data;
   uint32_t* _data_pointer;
 
@@ -149,7 +166,7 @@ private:
   uint8_t current_data();
 
 public:
-  BFInterpreter(std::vector<uint8_t>* data, uint32_t* data_pointer);
+  BFInterpreter(BFProgramExecutor* program_executor);
 
   void interpret_node(BFNode* node);
 };
@@ -162,7 +179,7 @@ private:
 public:
   BFCompiler();
 
-  void compile_loop_node(BFLoopNode* node, bool is_entry);
+  BFCompiledMethod* compile_loop_node(BFLoopNode* node, bool is_entry);
 };
 
 class BFProgramExecutor {
@@ -174,6 +191,12 @@ public:
   };
 
 private:
+  std::mutex _compile_queue_lock;
+  std::condition_variable _compile_queue_cv;
+  std::queue<BFLoopNode*> _compile_queue;
+  std::atomic<bool> _compiler_thread_running;
+  std::unique_ptr<std::thread> _compiler_thread;
+
   ExecutionMode _execution_mode;
   BFAST* _ast;
   std::vector<uint8_t> _data;
@@ -185,8 +208,16 @@ private:
   size_t _current_input_idx;
   const std::string& _input;
 
+  void compiler_thread_fn();
+
 public:
   BFProgramExecutor(BFAST* ast, const std::string& program_input, ExecutionMode execution_mode);
+  ~BFProgramExecutor();
+
+  std::vector<uint8_t>* data();
+  uint32_t* data_pointer();
+
+  void profile_loop_node(BFLoopNode* loop_node);
 
   void execute();
 

@@ -2,6 +2,7 @@
 #include <cstring>
 #include <iostream>
 #include <cassert>
+#include <mutex>
 #include <stack>
 
 #include "bf.hpp"
@@ -70,10 +71,15 @@ void BFCountNode::print(size_t indentation) const {
 void BFCountNode::increment_count() { assert(_count < (uint8_t)-1); _count++; }
 uint8_t BFCountNode::count() const { return _count; }
 
+BFLoopProfile::BFLoopProfile()
+  : _execution_count(0),
+    _compiled_method(nullptr),
+    _compilation_queued(false) {}
+
 BFLoopNode::BFLoopNode(NodeList children)
   : BFNode(BFNodeKind::Loop),
     _nodes(children),
-    _compiled_method(nullptr) {}
+    _profile() {}
 
 BFLoopNode::~BFLoopNode() {
   for (const BFNode* n : _nodes) {
@@ -83,9 +89,13 @@ BFLoopNode::~BFLoopNode() {
 
 NodeList* BFLoopNode::nodes() { return &_nodes; }
 
-BFCompiledMethod* BFLoopNode::compiled_method() { return _compiled_method; }
+void BFLoopNode::set_compiled_method(BFCompiledMethod* compiled_method) { _profile._compiled_method.store(compiled_method); }
 
-void BFLoopNode::set_compiled_method(BFCompiledMethod* compiled_method) { _compiled_method = compiled_method; }
+BFCompiledMethod* BFLoopNode::compiled_method() { return _profile._compiled_method.load(); }
+
+BFLoopProfile* BFLoopNode::profile() { return &_profile; }
+
+void BFLoopNode::inc_execution_count() { _profile._execution_count++; }
 
 void BFLoopNode::print(size_t indentation) const {
   BFNode::print(indentation);
@@ -203,7 +213,6 @@ void BFOptimizer::detect_clear_cell(NodeList* list) {
       BFLoopNode* list_node = static_cast<BFLoopNode*>(current);
       if (list_node->nodes()->size() == 1 &&
           list_node->nodes()->at(0)->kind() == BFNodeKind::ByteDec) {
-        list_node->BFLoopNode::~BFLoopNode();
         delete list_node;
 
         list->at(i) = new BFClearNode();
@@ -223,7 +232,7 @@ void BFInterpreter::increment_dp(uint32_t n) {
 }
 
 void BFInterpreter::decrement_dp(uint32_t n) {
-  if (_data_pointer != 0) {
+  if (*_data_pointer != 0) {
     *_data_pointer -= n;
   }
 }
@@ -239,9 +248,10 @@ void BFInterpreter::set_data(uint8_t input) { _data->at(*_data_pointer) = input;
 uint8_t BFInterpreter::current_data() { return _data->at(*_data_pointer); }
 
 
-BFInterpreter::BFInterpreter(std::vector<uint8_t>* data, uint32_t* data_pointer)
-  : _data(data),
-    _data_pointer(data_pointer) {}
+BFInterpreter::BFInterpreter(BFProgramExecutor* program_executor)
+  : _program_executor(program_executor),
+    _data(program_executor->data()),
+    _data_pointer(program_executor->data_pointer()) {}
 
 void BFInterpreter::interpret_node(BFNode* node) {
   // Handle loop node separately
@@ -249,9 +259,18 @@ void BFInterpreter::interpret_node(BFNode* node) {
     BFLoopNode* loop_node = as_loop_node(node);
 
     while (current_data() != 0) {
+      BFCompiledMethod* compiled_method = loop_node->compiled_method();
+      if (compiled_method != nullptr) {
+        uint8_t* data = (*compiled_method->method())(_data->data() + *_data_pointer);
+        *_data_pointer = data - _data->data();
+        break;
+      }
+
       for (BFNode* n : *loop_node->nodes()) {
         interpret_node(n);
       }
+
+      _program_executor->profile_loop_node(loop_node);
     }
 
     return;
@@ -299,10 +318,10 @@ BFCompiler::BFCompiler()
   : _code_blob(2 * 1024 * 1024),
     _assembler(&_code_blob) {}
 
-void BFCompiler::compile_loop_node(BFLoopNode* node, bool is_entry) {
+BFCompiledMethod* BFCompiler::compile_loop_node(BFLoopNode* node, bool is_entry) {
   if (node->compiled_method() != nullptr) {
     // Node already has a compiled method
-    return;
+    //assert(false);
   }
 
   void* entrypoint = _code_blob.get_current_entrypoint();
@@ -336,7 +355,6 @@ void BFCompiler::compile_loop_node(BFLoopNode* node, bool is_entry) {
     // condition should jump to the instruction just after the current loop. One
     // way to achieve this is to emit an instruction and then "backpatch" it to
     // jump to the "right" offset.
-    // TODO: Emit jump and store to backpatch array
     _assembler.jnz_rel32(5);
     _assembler.jmp_imm32(0);
     backpatch_jmp_addr = _code_blob.get_current_entrypoint();
@@ -371,7 +389,7 @@ void BFCompiler::compile_loop_node(BFLoopNode* node, bool is_entry) {
 
       _assembler.syscall();
     } else if (n->kind() == BFNodeKind::Loop) {
-      compile_loop_node((BFLoopNode*)n, false);
+      (void)compile_loop_node((BFLoopNode*)n, false);
     } else if (n->kind() == BFNodeKind::Clear) {
       _assembler.mov_imm8_mem8(0, data_array_reg);
     }
@@ -389,7 +407,7 @@ void BFCompiler::compile_loop_node(BFLoopNode* node, bool is_entry) {
     size_t method_size = (uintptr_t)method_end - (uintptr_t)entrypoint;
 
     BFCompiledMethod* compiled_method = new BFCompiledMethod((CompiledMethod)entrypoint, method_size);
-    node->set_compiled_method(compiled_method);
+    return compiled_method;
 
     if (debug_mode) {
       compiled_method->print_method(false);
@@ -402,40 +420,82 @@ void BFCompiler::compile_loop_node(BFLoopNode* node, bool is_entry) {
     int relative_offset_to_jmp = (uintptr_t)nested_loop_end - (uintptr_t)backpatch_jmp_addr;
 
     _assembler.jmp_imm32_backpatch(backpatch_jmp_addr, relative_offset_to_jmp);
+    return nullptr;
+  }
+}
+
+void BFProgramExecutor::compiler_thread_fn() {
+  while (_compiler_thread_running.load()) {
+    std::unique_lock lock(_compile_queue_lock);
+    _compile_queue_cv.wait(lock);
+    // Handle spurious wake ups
+    if (_compile_queue.empty()) {
+      continue;
+    }
+
+    BFLoopNode* loop_node = _compile_queue.front();
+    _compile_queue.pop();
+
+    // Compile method
+    BFCompiledMethod* compiled_method = _compiler.compile_loop_node(loop_node, true);
+    loop_node->set_compiled_method(compiled_method);
   }
 }
 
 BFProgramExecutor::BFProgramExecutor(BFAST* ast, const std::string& program_input, BFProgramExecutor::ExecutionMode execution_mode)
-  : _execution_mode(execution_mode),
+  : _compile_queue_lock(),
+    _compile_queue_cv(),
+    _compile_queue(),
+    _compiler_thread_running(true),
+    _compiler_thread(nullptr),
+    _execution_mode(execution_mode),
     _ast(ast),
     _data(30000, 0),
     _data_pointer(0),
-    _interpreter(&_data, &_data_pointer),
+    _interpreter(this),
     _compiler(),
     _current_input_idx(0),
-    _input(program_input) {}
+    _input(program_input) {
+
+  if (execution_mode == ExecutionMode::AheadOfTime) {
+    _compiler_thread = std::make_unique<std::thread>(&BFProgramExecutor::compiler_thread_fn, this);
+  }
+}
+
+BFProgramExecutor::~BFProgramExecutor() {
+  if (_compiler_thread != nullptr) {
+    _compiler_thread_running.store(false);
+    _compile_queue_cv.notify_one();
+    _compiler_thread->join();
+  }
+}
+
+std::vector<uint8_t>* BFProgramExecutor::data() { return &_data; }
+
+uint32_t* BFProgramExecutor::data_pointer() { return &_data_pointer; }
+
+void BFProgramExecutor::profile_loop_node(BFLoopNode* loop_node) {
+  loop_node->inc_execution_count();
+
+  // Check if we should enqueue this loop to be compiled
+  // TODO: Fix constants for these and a weighted, maybe recursive, size
+  // for nested loops
+  if (loop_node->nodes()->size() > 10 ||
+      loop_node->profile()->_execution_count > 50) {
+    bool expected = false;
+    if (loop_node->profile()->_compilation_queued.compare_exchange_strong(expected, true)) {
+      {
+        std::scoped_lock<std::mutex> lock(_compile_queue_lock);
+        _compile_queue.push(loop_node);
+      }
+      _compile_queue_cv.notify_one();
+    }
+  }
+}
 
 void BFProgramExecutor::execute() {
   for (BFNode* n : *_ast->nodes()) {
-    // Compiled method check
-    if (n->kind() == BFNodeKind::Loop) {
-      BFLoopNode* loop_node = as_loop_node(n);
-      BFCompiledMethod* compiled_method = loop_node->compiled_method();
-      if (compiled_method == nullptr) {
-        _compiler.compile_loop_node(loop_node, true);
-        compiled_method = loop_node->compiled_method();
-      }
-
-      if (compiled_method != nullptr) {
-        // If the list node had a compiled method, call it and continue to the next node
-        uint8_t* data = (*compiled_method->method())(_data.data() + _data_pointer);
-
-        // Calculate diff of data array and update data pointer with diff
-        _data_pointer = data - _data.data();
-
-        continue;
-      }
-    }
+    // TODO: Fix AOT-mode.
 
     // Interpret the node
     _interpreter.interpret_node(n);
