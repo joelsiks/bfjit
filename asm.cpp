@@ -84,28 +84,6 @@ void Assembler::mov_reg64_to_reg64(Register source, Register dest) {
   _code_blob->emit_byte(modrm);
 };
 
-void Assembler::mov_mem64_to_reg64(Register source, Register dest) {
-  const uint8_t rex = 0x40 | (uint8_t)RexMode::W;
-  const uint8_t opcode = 0x8B;
-  const uint8_t modrm = build_modrm(ModRM::MemNoDisplacement, (uint8_t)dest, (uint8_t)source);
-
-  _code_blob->emit_byte(rex);
-  _code_blob->emit_byte(opcode);
-  _code_blob->emit_byte(modrm);
-}
-
-void Assembler::mov_mem8_reg8disp_to_reg8(Register dest, Register base, Register index) {
-  const uint8_t opcode = 0x8A;
-  const uint8_t modrm = build_modrm(ModRM::MemNoDisplacement, (uint8_t)dest, SIBEnable);
-
-  const uint8_t sib_scaling = (uint8_t)SIBScaling::One << 6;
-  const uint8_t sib = (sib_scaling | ((uint8_t)index << 3) | (uint8_t)base);
-
-  _code_blob->emit_byte(opcode);
-  _code_blob->emit_byte(modrm);
-  _code_blob->emit_byte(sib);
-}
-
 void Assembler::mov_imm32_reg32(uint32_t immediate, Register dest) {
   uint8_t dest_b = (uint8_t)dest;
 
@@ -115,34 +93,25 @@ void Assembler::mov_imm32_reg32(uint32_t immediate, Register dest) {
   emit_immediate(immediate);
 }
 
-void Assembler::mov_imm8_mem8(uint8_t immediate, Register base, Register index) {
-  // C6 /0 ib
+void Assembler::mov_imm8_mem8(uint8_t immediate, Register dest) {
   const uint8_t opcode = 0xC6;
-  const uint8_t modrm = build_modrm(ModRM::MemNoDisplacement, 0b000, SIBEnable);
-  const uint8_t sib_scaling = (uint8_t)SIBScaling::One << 6;
-  const uint8_t sib = (sib_scaling | ((uint8_t)index << 3) | (uint8_t)base);
+  const uint8_t modrm = build_modrm(ModRM::MemNoDisplacement, 0b000, (uint8_t)dest);
 
   _code_blob->emit_byte(opcode);
   _code_blob->emit_byte(modrm);
-  _code_blob->emit_byte(sib);
   emit_immediate(immediate);
 }
 
-void Assembler::sub_imm8_mem8(uint8_t immediate, Register base, Register index) {
+void Assembler::mov_mem8_reg8(Register source, Register dest) {
+  const uint8_t opcode = 0x8A;
+  const uint8_t modrm = build_modrm(ModRM::MemNoDisplacement, (uint8_t)dest, (uint8_t)source);
+
+  _code_blob->emit_byte(opcode);
+  _code_blob->emit_byte(modrm);
+}
+
+void Assembler::sub_imm8_mem8(uint8_t immediate, Register dest) {
   const uint8_t opcode = 0x80;
-  const uint8_t modrm = build_modrm(ModRM::MemNoDisplacement, (uint8_t)ModRMExtension::SUB, SIBEnable);
-
-  const uint8_t sib_scaling = (uint8_t)SIBScaling::One << 6;
-  const uint8_t sib = (sib_scaling | ((uint8_t)index << 3) | (uint8_t)base);
-
-  _code_blob->emit_byte(opcode);
-  _code_blob->emit_byte(modrm);
-  _code_blob->emit_byte(sib);
-  emit_immediate(immediate);
-}
-
-void Assembler::sub_imm8_mem32(uint8_t immediate, Register dest) {
-  const uint8_t opcode = 0x83;
   const uint8_t modrm = build_modrm(ModRM::MemNoDisplacement, (uint8_t)ModRMExtension::SUB, (uint8_t)dest);
 
   _code_blob->emit_byte(opcode);
@@ -150,21 +119,19 @@ void Assembler::sub_imm8_mem32(uint8_t immediate, Register dest) {
   emit_immediate(immediate);
 }
 
-void Assembler::add_imm8_mem8(uint8_t immediate, Register base, Register index) {
-  const uint8_t opcode = 0x80;
-  const uint8_t modrm = build_modrm(ModRM::MemNoDisplacement, (uint8_t)ModRMExtension::ADD, SIBEnable);
+void Assembler::sub_imm32_reg64(uint32_t immediate, Register dest) {
+  const uint8_t rex = 0x40 | (uint8_t)RexMode::W;
+  const uint8_t opcode = 0x81;
+  const uint8_t modrm = build_modrm(ModRM::Reg, (uint8_t)ModRMExtension::SUB, (uint8_t)dest);
 
-  const uint8_t sib_scaling = (uint8_t)SIBScaling::One << 6;
-  const uint8_t sib = (sib_scaling | ((uint8_t)index << 3) | (uint8_t)base);
-
+  _code_blob->emit_byte(rex);
   _code_blob->emit_byte(opcode);
   _code_blob->emit_byte(modrm);
-  _code_blob->emit_byte(sib);
   emit_immediate(immediate);
 }
 
-void Assembler::add_imm8_mem32(uint8_t immediate, Register dest) {
-  const uint8_t opcode = 0x83;
+void Assembler::add_imm8_mem8(uint8_t immediate, Register dest) {
+  const uint8_t opcode = 0x80;
   const uint8_t modrm = build_modrm(ModRM::MemNoDisplacement, (uint8_t)ModRMExtension::ADD, (uint8_t)dest);
 
   _code_blob->emit_byte(opcode);
@@ -172,14 +139,15 @@ void Assembler::add_imm8_mem32(uint8_t immediate, Register dest) {
   emit_immediate(immediate);
 }
 
-void Assembler::add_mem64_reg64(Register source, Register dest) {
+void Assembler::add_imm32_reg64(uint32_t immediate, Register dest) {
   const uint8_t rex = 0x40 | (uint8_t)RexMode::W;
-  const uint8_t opcode = 0x03;
-  const uint8_t modrm = build_modrm(ModRM::MemNoDisplacement, (uint8_t)dest, (uint8_t)source);
+  const uint8_t opcode = 0x81;
+  const uint8_t modrm = build_modrm(ModRM::Reg, (uint8_t)ModRMExtension::ADD, (uint8_t)dest);
 
   _code_blob->emit_byte(rex);
   _code_blob->emit_byte(opcode);
   _code_blob->emit_byte(modrm);
+  emit_immediate(immediate);
 }
 
 void Assembler::test_reg8(Register reg) {
@@ -198,6 +166,16 @@ void Assembler::jmp_imm32(int32_t relative_offset) {
   emit_immediate(immediate);
 }
 
+void Assembler::jnz_rel32(int32_t relative_offset) {
+  const uint8_t opcode_1 = 0x0F;
+  const uint8_t opcode_0 = 0x85;
+  const uint32_t immediate = twos_complement(relative_offset);
+
+  _code_blob->emit_byte(opcode_1);
+  _code_blob->emit_byte(opcode_0);
+  emit_immediate(immediate);
+}
+
 void Assembler::jmp_imm32_backpatch(void* jmp_instr_addr, int32_t relative_offset) {
   // jmp_instr_addr points to the end of the jmp instruction, so we need to "go
   // back" the size of the instruction, which is 5 bytes, to get to the actual
@@ -210,16 +188,6 @@ void Assembler::jmp_imm32_backpatch(void* jmp_instr_addr, int32_t relative_offse
   *(jmp_instr + 1) = (uint8_t)(immediate >> 8);
   *(jmp_instr + 2) = (uint8_t)(immediate >> 16);
   *(jmp_instr + 3) = (uint8_t)(immediate >> 24);
-}
-
-void Assembler::jnz_rel32(int32_t relative_offset) {
-  const uint8_t opcode_1 = 0x0F;
-  const uint8_t opcode_0 = 0x85;
-  const uint32_t immediate = twos_complement(relative_offset);
-
-  _code_blob->emit_byte(opcode_1);
-  _code_blob->emit_byte(opcode_0);
-  emit_immediate(immediate);
 }
 
 void Assembler::syscall() {

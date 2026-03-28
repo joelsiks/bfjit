@@ -13,21 +13,19 @@ class BFProgramExecutor;
 
 typedef std::vector<BFNode*> NodeList;
 
-// A compiled method takes in the "state" of the VM, that is:
-// 1) A pointer to the "data"-array
-// 2) A pointer to the current data pointer, i.e., a pointer to a number
-//    which is used to index the data-array
-typedef void (*JITFn)(uint8_t*, uint32_t*);
+// A compiled method takes in a "compressed" state of the VM, representing
+// both the array and index with a single pointer.
+typedef uint8_t* (*CompiledMethod)(uint8_t*);
 
 class BFCompiledMethod {
 private:
-  const JITFn _compiled_method;
+  const CompiledMethod _compiled_method;
   const size_t _bytes;
 
 public:
-  BFCompiledMethod(JITFn compiled_method, size_t bytes);
+  BFCompiledMethod(CompiledMethod compiled_method, size_t bytes);
 
-  JITFn method() const;
+  CompiledMethod method() const;
   size_t bytes() const;
 
   void print_method(bool print_address) const;
@@ -164,7 +162,7 @@ private:
 public:
   BFCompiler();
 
-  void compile_list_node(BFLoopNode* node, bool is_entry);
+  void compile_loop_node(BFLoopNode* node, bool is_entry);
 };
 
 class BFProgramExecutor {
@@ -188,7 +186,6 @@ private:
   const std::string& _input;
 
 public:
-
   BFProgramExecutor(BFAST* ast, const std::string& program_input, ExecutionMode execution_mode);
 
   void execute();

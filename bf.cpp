@@ -23,11 +23,11 @@ const char* node_kind_name(BFNodeKind kind) {
   }
 };
 
-BFCompiledMethod::BFCompiledMethod(JITFn compiled_method, size_t bytes)
+BFCompiledMethod::BFCompiledMethod(CompiledMethod compiled_method, size_t bytes)
   : _compiled_method(compiled_method),
     _bytes(bytes) {}
 
-JITFn BFCompiledMethod::method() const { return _compiled_method; }
+CompiledMethod BFCompiledMethod::method() const { return _compiled_method; }
 
 size_t BFCompiledMethod::bytes() const { return _bytes; }
 
@@ -299,7 +299,7 @@ BFCompiler::BFCompiler()
   : _code_blob(2 * 1024 * 1024),
     _assembler(&_code_blob) {}
 
-void BFCompiler::compile_list_node(BFLoopNode* node, bool is_entry) {
+void BFCompiler::compile_loop_node(BFLoopNode* node, bool is_entry) {
   if (node->compiled_method() != nullptr) {
     // Node already has a compiled method
     return;
@@ -307,16 +307,20 @@ void BFCompiler::compile_list_node(BFLoopNode* node, bool is_entry) {
 
   void* entrypoint = _code_blob.get_current_entrypoint();
 
-  // The arguments are in RDI (pointer to the data array) and RSI (a pointer to the data pointer)
-  Assembler::Register data_array_reg = Assembler::Register::DI;
-  Assembler::Register data_pointer_reg = Assembler::Register::SI;
+  // The argument is in rdi (pointer to the data array), but we move it to rsi
+  // immediately since the syscalls (read and write) expect to have the memory
+  // location to print from there, so we don't have to juggle registers.
+  Assembler::Register data_array_reg = Assembler::Register::SI;
+
+  if (is_entry) {
+    _assembler.mov_reg64_to_reg64(Assembler::Register::DI, data_array_reg);
+  }
 
   void* zero_check_start = _code_blob.get_current_entrypoint();
 
   // Loop start/end condition check: If the check is true, i.e., the data at the
   // current data pointer is 0, then we don't jump and go straight to the return
-  _assembler.mov_mem64_to_reg64(data_pointer_reg, Assembler::Register::A); // mov rax, [rsi]
-  _assembler.mov_mem8_reg8disp_to_reg8(Assembler::Register::A, data_array_reg, Assembler::Register::A), // mov rax, [rdi+rax]
+  _assembler.mov_mem8_reg8(data_array_reg, Assembler::Register::A);
   _assembler.test_reg8(Assembler::Register::A);
 
   void* backpatch_jmp_addr = nullptr;
@@ -324,7 +328,8 @@ void BFCompiler::compile_list_node(BFLoopNode* node, bool is_entry) {
   if (is_entry) {
     // If this is the entry loop, then we just emit a return instruction to return
     // back to the VM/interpreter
-    _assembler.jnz_rel32(1);
+    _assembler.jnz_rel32(4);
+    _assembler.mov_reg64_to_reg64(data_array_reg, Assembler::Register::A);
     _assembler.ret_near();
   } else {
     // If this is not the entry loop, we're inside a nested loop, so the "return"
@@ -338,25 +343,16 @@ void BFCompiler::compile_list_node(BFLoopNode* node, bool is_entry) {
   }
 
   for (BFNode* n : *node->nodes()) {
-    BFCountNode* node_leaf = static_cast<BFCountNode*>(n);
     if (n->kind() == BFNodeKind::DpInc) {
-      _assembler.add_imm8_mem32((uint32_t)node_leaf->count(), data_pointer_reg);
+      // Increment the pointer by a byte
+      _assembler.add_imm32_reg64((uint32_t)as_count_node(n)->count(), data_array_reg);
     } else if (n->kind() == BFNodeKind::DpDec) {
-      _assembler.sub_imm8_mem32((uint32_t)node_leaf->count(), data_pointer_reg);
+      _assembler.sub_imm32_reg64((uint32_t)as_count_node(n)->count(), data_array_reg);
     } else if (n->kind() == BFNodeKind::ByteInc) {
-      _assembler.mov_mem64_to_reg64(data_pointer_reg, Assembler::Register::A);
-      _assembler.add_imm8_mem8(node_leaf->count(), data_array_reg, Assembler::Register::A);
+      _assembler.add_imm8_mem8(as_count_node(n)->count(), data_array_reg);
     } else if (n->kind() == BFNodeKind::ByteDec) {
-      _assembler.mov_mem64_to_reg64(data_pointer_reg, Assembler::Register::A);
-      _assembler.sub_imm8_mem8(node_leaf->count(), data_array_reg, Assembler::Register::A);
+      _assembler.sub_imm8_mem8(as_count_node(n)->count(), data_array_reg);
     } else if (n->kind() == BFNodeKind::DpOutput) {
-      _assembler.push_reg(data_array_reg);
-      _assembler.push_reg(data_pointer_reg);
-
-      // Address is stored in rsi
-      _assembler.add_mem64_reg64(Assembler::Register::SI, Assembler::Register::DI);
-      _assembler.mov_reg64_to_reg64(Assembler::Register::DI, Assembler::Register::SI);
-
       // The number of the syscall is stored in rax
       _assembler.mov_imm32_reg32(1, Assembler::Register::A);
       // File handle is stored in rdi
@@ -365,17 +361,7 @@ void BFCompiler::compile_list_node(BFLoopNode* node, bool is_entry) {
       _assembler.mov_imm32_reg32(1, Assembler::Register::D);
 
       _assembler.syscall();
-
-      _assembler.pop_reg(data_pointer_reg);
-      _assembler.pop_reg(data_array_reg);
     } else if (n->kind() == BFNodeKind::DpInput) {
-      _assembler.push_reg(data_array_reg);
-      _assembler.push_reg(data_pointer_reg);
-
-      // Address is stored in rsi
-      _assembler.add_mem64_reg64(Assembler::Register::SI, Assembler::Register::DI);
-      _assembler.mov_reg64_to_reg64(Assembler::Register::DI, Assembler::Register::SI);
-
       // The number of the syscall is stored in rax
       _assembler.mov_imm32_reg32(0, Assembler::Register::A);
       // File handle is stored in rdi
@@ -384,14 +370,10 @@ void BFCompiler::compile_list_node(BFLoopNode* node, bool is_entry) {
       _assembler.mov_imm32_reg32(1, Assembler::Register::D);
 
       _assembler.syscall();
-
-      _assembler.pop_reg(data_pointer_reg);
-      _assembler.pop_reg(data_array_reg);
     } else if (n->kind() == BFNodeKind::Loop) {
-      compile_list_node((BFLoopNode*)n, false);
+      compile_loop_node((BFLoopNode*)n, false);
     } else if (n->kind() == BFNodeKind::Clear) {
-      _assembler.mov_mem64_to_reg64(data_pointer_reg, Assembler::Register::A);
-      _assembler.mov_imm8_mem8(0, data_array_reg, Assembler::Register::A);
+      _assembler.mov_imm8_mem8(0, data_array_reg);
     }
   }
 
@@ -406,7 +388,7 @@ void BFCompiler::compile_list_node(BFLoopNode* node, bool is_entry) {
     void* method_end = _code_blob.get_current_entrypoint();
     size_t method_size = (uintptr_t)method_end - (uintptr_t)entrypoint;
 
-    BFCompiledMethod* compiled_method = new BFCompiledMethod((JITFn)entrypoint, method_size);
+    BFCompiledMethod* compiled_method = new BFCompiledMethod((CompiledMethod)entrypoint, method_size);
     node->set_compiled_method(compiled_method);
 
     if (debug_mode) {
@@ -440,15 +422,17 @@ void BFProgramExecutor::execute() {
       BFLoopNode* loop_node = as_loop_node(n);
       BFCompiledMethod* compiled_method = loop_node->compiled_method();
       if (compiled_method == nullptr) {
-        _compiler.compile_list_node(loop_node, true);
+        _compiler.compile_loop_node(loop_node, true);
         compiled_method = loop_node->compiled_method();
       }
 
       if (compiled_method != nullptr) {
-        // If the list node had a compiled method, call it and continue to the
-        // next node
-        uint8_t* data = _data.data();
-        (*compiled_method->method())(data, &_data_pointer);
+        // If the list node had a compiled method, call it and continue to the next node
+        uint8_t* data = (*compiled_method->method())(_data.data() + _data_pointer);
+
+        // Calculate diff of data array and update data pointer with diff
+        _data_pointer = data - _data.data();
+
         continue;
       }
     }
@@ -511,7 +495,7 @@ int main(int argc, const char** argv) {
     ast.print();
   }
 
-  BFProgramExecutor executor(&ast, program_input, BFProgramExecutor::ExecutionMode::AOT);
+  BFProgramExecutor executor(&ast, program_input, BFProgramExecutor::ExecutionMode::AheadOfTime);
   executor.execute();
   if (debug_mode) {
     executor.debug_print();
