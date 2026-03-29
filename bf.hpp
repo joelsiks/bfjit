@@ -1,23 +1,22 @@
 #ifndef BF_HPP
 #define BF_HPP
 
+#include <atomic>
+#include <condition_variable>
 #include <cstdint>
-#include <cstdlib>
+#include <functional>
+#include <mutex>
 #include <queue>
 #include <string>
-#include <vector>
-
-#include <mutex>
-#include <condition_variable>
 #include <thread>
-#include <atomic>
+#include <vector>
 
 #include "asm.hpp"
 
 class BFNode;
 class BFProgramExecutor;
 
-typedef std::vector<BFNode*> NodeList;
+typedef std::vector<BFNode*> BFNodeList;
 
 // A compiled method takes in a "compressed" state of the VM, representing
 // both the array and index with a single pointer.
@@ -47,9 +46,8 @@ enum class BFNodeKind {
   DpInput,
   Loop,
 
-  // Extensions
+  // Extension(s)
   Clear,
-  MoveFrom,
 };
 
 const char* node_kind_name(BFNodeKind kind);
@@ -84,23 +82,29 @@ struct BFLoopProfile {
   std::atomic<BFCompiledMethod*> _compiled_method;
   std::atomic<bool> _compilation_queued;
 
+public:
   BFLoopProfile();
+
+  size_t execution_count();
+  void inc_execution_count();
+
+  bool mark_compilation_queued();
+
+  void set_compiled_method(BFCompiledMethod* compiled_method);
+  BFCompiledMethod* compiled_method();
 };
 
 class BFLoopNode : public BFNode {
 private:
-  NodeList _nodes;
+  BFNodeList _nodes;
   BFLoopProfile _profile;
 
 public:
-  BFLoopNode(NodeList children);
+  BFLoopNode(BFNodeList children);
   ~BFLoopNode() override;
 
-  NodeList* nodes();
-  void set_compiled_method(BFCompiledMethod* compiled_method);
-  BFCompiledMethod* compiled_method();
+  BFNodeList* nodes();
   BFLoopProfile* profile();
-  void inc_execution_count();
 
   void print(size_t indentation) const override;
 };
@@ -112,13 +116,13 @@ public:
 
 class BFAST {
 private:
-  NodeList _nodes;
+  BFNodeList _nodes;
 
 public:
-  BFAST(NodeList&& nodes);
+  BFAST(BFNodeList&& nodes);
   ~BFAST();
 
-  NodeList* nodes();
+  BFNodeList* nodes();
   void print() const;
 };
 
@@ -139,47 +143,75 @@ public:
 
 class BFOptimizer {
 public:
-  static void apply_run_length_encoding(NodeList* list);
-  static void detect_clear_cell(NodeList* list);
-
-  // TODO: Some optimization pass that detects whether to pass the data pointer
-  // by reference or by value to the compiled method. By reference means we need
-  // to load it from memory into a register every time we need it, and by value
-  // we read it when we enter the compiled method, work on or local copy, and then
-  // restore it when exiting.
+  static void apply_run_length_encoding(BFNodeList* list);
+  static void detect_clear_cell(BFNodeList* list);
 };
 
-class BFInterpreter {
+class BFMemory {
 private:
-  BFProgramExecutor* _program_executor;
-  std::vector<uint8_t>* _data;
-  uint32_t* _data_pointer;
+  static const size_t MemorySize = 30000;
 
-  void increment_dp(uint32_t n);
-  void decrement_dp(uint32_t n);
+  std::vector<uint8_t> _data;
+  size_t _data_pointer;
+
+public:
+  BFMemory();
+
+  void increment_dp(size_t n);
+  void decrement_dp(size_t n);
 
   void increment_byte(uint8_t n);
   void decrement_byte(uint8_t n);
+
+  uint8_t* current_data_addr();
+  void update_data_pointer(uint8_t* new_data_addr);
 
   void print_data();
   void set_data(uint8_t input);
   uint8_t current_data();
 
+  uint8_t data_at(size_t i);
+};
+
+class BFInterpreter {
+private:
+  BFMemory* _memory;
+  std::function<void(BFLoopNode*)> _profile_callback;
+  bool _enable_jit;
+
 public:
-  BFInterpreter(BFProgramExecutor* program_executor);
+  BFInterpreter(BFMemory* memory, bool enable_jit, std::function<void(BFLoopNode*)> profile_callback);
 
   void interpret_node(BFNode* node);
 };
 
 class BFCompiler {
 private:
+
+  static const size_t CodeBlobSize = 2 * 1024 * 1024; // 2MB
+  static const Assembler::Register DataArrayRegister = Assembler::Register::SI;
+
   CodeBlob _code_blob;
   Assembler _assembler;
 
-public:
-  BFCompiler();
+  std::mutex _compile_queue_lock;
+  std::condition_variable _compile_queue_cv;
+  std::queue<BFLoopNode*> _compile_queue;
+  std::atomic<bool> _compiler_thread_running;
+  std::unique_ptr<std::thread> _compiler_thread;
 
-  BFCompiledMethod* compile_loop_node(BFLoopNode* node, bool is_entry);
+  void compiler_thread_fn();
+
+  void compile_node_list(BFNodeList* node_list);
+
+public:
+  BFCompiler(bool start_compiler_thread);
+  ~BFCompiler();
+
+  void send_compilation_request(BFLoopNode* loop_node);
+
+  BFCompiledMethod* compile_loop_node(BFLoopNode* loop_node, bool is_entry);
+  BFCompiledMethod* compile_aot(BFNodeList* node_list);
 };
 
 class BFProgramExecutor {
@@ -191,34 +223,22 @@ public:
   };
 
 private:
-  std::mutex _compile_queue_lock;
-  std::condition_variable _compile_queue_cv;
-  std::queue<BFLoopNode*> _compile_queue;
-  std::atomic<bool> _compiler_thread_running;
-  std::unique_ptr<std::thread> _compiler_thread;
+  static const size_t CompileThresholdLoopSize = 10;
+  static const size_t CompileThresholdExecutionCount = 50;
 
   ExecutionMode _execution_mode;
   BFAST* _ast;
-  std::vector<uint8_t> _data;
-  uint32_t _data_pointer;
+  BFMemory _memory;
 
   BFInterpreter _interpreter;
   BFCompiler _compiler;
 
-  size_t _current_input_idx;
-  const std::string& _input;
-
-  void compiler_thread_fn();
-
 public:
-  BFProgramExecutor(BFAST* ast, const std::string& program_input, ExecutionMode execution_mode);
-  ~BFProgramExecutor();
+  BFProgramExecutor(BFAST* ast, ExecutionMode execution_mode);
 
-  std::vector<uint8_t>* data();
-  uint32_t* data_pointer();
+  ExecutionMode execution_mode();
 
   void profile_loop_node(BFLoopNode* loop_node);
-
   void execute();
 
   void debug_print();

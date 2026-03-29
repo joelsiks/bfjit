@@ -1,8 +1,6 @@
 #include <cstdio>
 #include <cstring>
-#include <iostream>
 #include <cassert>
-#include <mutex>
 #include <stack>
 
 #include "bf.hpp"
@@ -19,7 +17,6 @@ const char* node_kind_name(BFNodeKind kind) {
     case BFNodeKind::DpInput:  return "Input";
     case BFNodeKind::Loop:     return "Loop";
     case BFNodeKind::Clear:    return "Clear";
-    case BFNodeKind::MoveFrom: return "MoveFrom";
     default: assert(false);
   }
 };
@@ -57,15 +54,15 @@ BFNode::~BFNode() {}
 BFNodeKind BFNode::kind() const { return _kind; }
 
 void BFNode::print(size_t indentation) const {
-  for (int i = 0; i < indentation; i++) std::cout << " ";
-  std::cout << node_kind_name(_kind) << std::endl;
+  for (int i = 0; i < indentation; i++) printf(" ");
+  printf("%s\n", node_kind_name(_kind));
 }
 
 BFCountNode::BFCountNode(BFNodeKind kind) : BFNode(kind), _count(1) {}
 
 void BFCountNode::print(size_t indentation) const {
-  for (int i = 0; i < indentation; i++) std::cout << " ";
-  std::cout << node_kind_name(kind()) << " (" << (size_t)_count << ")" << std::endl;
+  for (int i = 0; i < indentation; i++) printf(" ");
+  printf("%s (%d)\n", node_kind_name(_kind), _count);
 }
 
 void BFCountNode::increment_count() { assert(_count < (uint8_t)-1); _count++; }
@@ -76,7 +73,20 @@ BFLoopProfile::BFLoopProfile()
     _compiled_method(nullptr),
     _compilation_queued(false) {}
 
-BFLoopNode::BFLoopNode(NodeList children)
+size_t BFLoopProfile::execution_count() { return _execution_count; }
+
+void BFLoopProfile::inc_execution_count() { _execution_count++; }
+
+bool BFLoopProfile::mark_compilation_queued() {
+  bool expected = false;
+  return _compilation_queued.compare_exchange_strong(expected, true);
+}
+
+void BFLoopProfile::set_compiled_method(BFCompiledMethod* compiled_method) { _compiled_method.store(compiled_method); }
+
+BFCompiledMethod* BFLoopProfile::compiled_method() { return _compiled_method.load(); }
+
+BFLoopNode::BFLoopNode(BFNodeList children)
   : BFNode(BFNodeKind::Loop),
     _nodes(children),
     _profile() {}
@@ -85,17 +95,12 @@ BFLoopNode::~BFLoopNode() {
   for (const BFNode* n : _nodes) {
     delete n;
   }
+  delete _profile._compiled_method;
 }
 
-NodeList* BFLoopNode::nodes() { return &_nodes; }
-
-void BFLoopNode::set_compiled_method(BFCompiledMethod* compiled_method) { _profile._compiled_method.store(compiled_method); }
-
-BFCompiledMethod* BFLoopNode::compiled_method() { return _profile._compiled_method.load(); }
+BFNodeList* BFLoopNode::nodes() { return &_nodes; }
 
 BFLoopProfile* BFLoopNode::profile() { return &_profile; }
-
-void BFLoopNode::inc_execution_count() { _profile._execution_count++; }
 
 void BFLoopNode::print(size_t indentation) const {
   BFNode::print(indentation);
@@ -107,7 +112,7 @@ void BFLoopNode::print(size_t indentation) const {
 BFClearNode::BFClearNode()
   : BFNode(BFNodeKind::Clear) {}
 
-BFAST::BFAST(NodeList&& nodes) : _nodes(nodes) {}
+BFAST::BFAST(BFNodeList&& nodes) : _nodes(nodes) {}
 
 BFAST::~BFAST() {
   for (const BFNode* n : _nodes) {
@@ -115,7 +120,7 @@ BFAST::~BFAST() {
   }
 }
 
-NodeList* BFAST::nodes() { return &_nodes; }
+BFNodeList* BFAST::nodes() { return &_nodes; }
 
 void BFAST::print() const {
   for (const BFNode* n : _nodes) {
@@ -166,7 +171,7 @@ BFAST BFParser::parse() {
   return BFAST(std::move(node_lists.top()));
 }
 
-void BFOptimizer::apply_run_length_encoding(NodeList* list) {
+void BFOptimizer::apply_run_length_encoding(BFNodeList* list) {
   // We want to visit all nodes in the AST and detect if there are consecutive
   // nodes with the same kind. If so, they should be "collapsed" into a single
   // node, having a count set to the number of times it should be executed.
@@ -206,7 +211,7 @@ void BFOptimizer::apply_run_length_encoding(NodeList* list) {
   }
 }
 
-void BFOptimizer::detect_clear_cell(NodeList* list) {
+void BFOptimizer::detect_clear_cell(BFNodeList* list) {
   for (size_t i = 0; i < list->size(); i++) {
     BFNode* current = list->at(i);
     if (current->kind() == BFNodeKind::Loop) {
@@ -223,54 +228,68 @@ void BFOptimizer::detect_clear_cell(NodeList* list) {
   }
 }
 
-void BFInterpreter::increment_dp(uint32_t n) {
-  *_data_pointer += n;
-  const size_t new_size = *_data_pointer + 1;
-  if (new_size > _data->size()) {
-    _data->resize(new_size);
+BFMemory::BFMemory()
+  : _data(MemorySize),
+    _data_pointer(0) {}
+
+void BFMemory::increment_dp(size_t n) {
+  _data_pointer += n;
+  const size_t new_size = _data_pointer + 1;
+  if (new_size > _data.size()) {
+    _data.resize(new_size);
   }
 }
 
-void BFInterpreter::decrement_dp(uint32_t n) {
-  if (*_data_pointer != 0) {
-    *_data_pointer -= n;
+void BFMemory::decrement_dp(size_t n) {
+  if (_data_pointer != 0) {
+    _data_pointer -= n;
   }
 }
 
-void BFInterpreter::increment_byte(uint8_t n) { _data->at(*_data_pointer) += n; }
+void BFMemory::increment_byte(uint8_t n) { _data.at(_data_pointer) += n; }
 
-void BFInterpreter::decrement_byte(uint8_t n) { _data->at(*_data_pointer) -= n; }
+void BFMemory::decrement_byte(uint8_t n) { _data.at(_data_pointer) -= n; }
 
-void BFInterpreter::print_data() { std::cout << (char)(_data->at(*_data_pointer)) << std::flush; }
+uint8_t* BFMemory::current_data_addr() { return _data.data() + _data_pointer; }
 
-void BFInterpreter::set_data(uint8_t input) { _data->at(*_data_pointer) = input; }
+void BFMemory::update_data_pointer(uint8_t* new_data_addr) { _data_pointer = new_data_addr - _data.data(); }
 
-uint8_t BFInterpreter::current_data() { return _data->at(*_data_pointer); }
+void BFMemory::print_data() { printf("%c",_data.at(_data_pointer)); }
 
+void BFMemory::set_data(uint8_t input) { _data.at(_data_pointer) = input; }
 
-BFInterpreter::BFInterpreter(BFProgramExecutor* program_executor)
-  : _program_executor(program_executor),
-    _data(program_executor->data()),
-    _data_pointer(program_executor->data_pointer()) {}
+uint8_t BFMemory::current_data() { return _data.at(_data_pointer); }
+
+uint8_t BFMemory::data_at(size_t i) { return _data.at(i); }
+
+BFInterpreter::BFInterpreter(BFMemory* memory, bool enable_jit, std::function<void(BFLoopNode*)> profile_callback)
+  : _memory(memory),
+    _profile_callback(profile_callback),
+    _enable_jit(enable_jit) {}
 
 void BFInterpreter::interpret_node(BFNode* node) {
-  // Handle loop node separately
+  // A loop node is a bit more involved so handle it first
   if (node->kind() == BFNodeKind::Loop) {
     BFLoopNode* loop_node = as_loop_node(node);
 
-    while (current_data() != 0) {
-      BFCompiledMethod* compiled_method = loop_node->compiled_method();
-      if (compiled_method != nullptr) {
-        uint8_t* data = (*compiled_method->method())(_data->data() + *_data_pointer);
-        *_data_pointer = data - _data->data();
-        break;
+    while (_memory->current_data() != 0) {
+      if (_enable_jit) {
+        BFCompiledMethod* compiled_method = loop_node->profile()->compiled_method();
+        if (compiled_method != nullptr) {
+          uint8_t* new_data_addr = (*compiled_method->method())(_memory->current_data_addr());
+          _memory->update_data_pointer(new_data_addr);
+          break;
+        }
       }
 
+      // Interpret the loop node's children
       for (BFNode* n : *loop_node->nodes()) {
         interpret_node(n);
       }
 
-      _program_executor->profile_loop_node(loop_node);
+      if (_enable_jit) {
+        _profile_callback(loop_node);
+      }
     }
 
     return;
@@ -281,88 +300,66 @@ void BFInterpreter::interpret_node(BFNode* node) {
 
   switch (node->kind()) {
     case BFNodeKind::DpInc:
-      increment_dp(n);
+      _memory->increment_dp(n);
       break;
     case BFNodeKind::DpDec:
-      decrement_dp(n);
+      _memory->decrement_dp(n);
       break;
     case BFNodeKind::ByteInc:
-      increment_byte(n);
+      _memory->increment_byte(n);
       break;
     case BFNodeKind::ByteDec:
-      decrement_byte(n);
+      _memory->decrement_byte(n);
       break;
     case BFNodeKind::DpOutput:
       for (size_t i = 0; i < n; i++) {
-        print_data();
+        _memory->print_data();
       }
       break;
     case BFNodeKind::DpInput:
-      // No input string from the user, prompt the user for a character
-      set_data((uint8_t)getchar());
+      _memory->set_data((uint8_t)getchar());
       break;
     case BFNodeKind::Loop:
-      assert(false); // Should not reach here...
+      // The loop node is already handled above
+      assert(false);
       break;
     case BFNodeKind::Clear:
-      set_data(0);
-      break;
-    case BFNodeKind::MoveFrom:
-      // TODO: Implement
-      assert(false);
+      _memory->set_data(0);
       break;
   }
 }
 
-BFCompiler::BFCompiler()
-  : _code_blob(2 * 1024 * 1024),
-    _assembler(&_code_blob) {}
+void BFCompiler::compiler_thread_fn() {
+  while (_compiler_thread_running.load()) {
+    std::unique_lock lock(_compile_queue_lock);
+    _compile_queue_cv.wait(lock);
+    if (_compile_queue.empty()) {
+      continue;
+    }
 
-BFCompiledMethod* BFCompiler::compile_loop_node(BFLoopNode* node, bool is_entry) {
-  if (node->compiled_method() != nullptr) {
-    // Node already has a compiled method
-    //assert(false);
+    BFLoopNode* loop_node = _compile_queue.front();
+    _compile_queue.pop();
+
+    // Compile method
+    BFCompiledMethod* compiled_method = compile_loop_node(loop_node, true);
+    loop_node->profile()->set_compiled_method(compiled_method);
   }
+}
 
-  void* entrypoint = _code_blob.get_current_entrypoint();
-
+void BFCompiler::compile_node_list(BFNodeList* node_list) {
   // The argument is in rdi (pointer to the data array), but we move it to rsi
   // immediately since the syscalls (read and write) expect to have the memory
   // location to print from there, so we don't have to juggle registers.
   Assembler::Register data_array_reg = Assembler::Register::SI;
 
-  if (is_entry) {
-    _assembler.mov_reg64_to_reg64(Assembler::Register::DI, data_array_reg);
-  }
+  // Arguments for syscalls are:
+  //  1. sycall number in rax
+  //  2. file handle in rdi (stdin/stdout)
+  //  3. pointer to memory in rsi (our data pointer live there so no need to do anything)
+  //  4. number of bytes in rdx
 
-  void* zero_check_start = _code_blob.get_current_entrypoint();
-
-  // Loop start/end condition check: If the check is true, i.e., the data at the
-  // current data pointer is 0, then we don't jump and go straight to the return
-  _assembler.mov_mem8_reg8(data_array_reg, Assembler::Register::A);
-  _assembler.test_reg8(Assembler::Register::A);
-
-  void* backpatch_jmp_addr = nullptr;
-
-  if (is_entry) {
-    // If this is the entry loop, then we just emit a return instruction to return
-    // back to the VM/interpreter
-    _assembler.jnz_rel32(4);
-    _assembler.mov_reg64_to_reg64(data_array_reg, Assembler::Register::A);
-    _assembler.ret_near();
-  } else {
-    // If this is not the entry loop, we're inside a nested loop, so the "return"
-    // condition should jump to the instruction just after the current loop. One
-    // way to achieve this is to emit an instruction and then "backpatch" it to
-    // jump to the "right" offset.
-    _assembler.jnz_rel32(5);
-    _assembler.jmp_imm32(0);
-    backpatch_jmp_addr = _code_blob.get_current_entrypoint();
-  }
-
-  for (BFNode* n : *node->nodes()) {
+  for (BFNode* n : *node_list) {
     if (n->kind() == BFNodeKind::DpInc) {
-      // Increment the pointer by a byte
       _assembler.add_imm32_reg64((uint32_t)as_count_node(n)->count(), data_array_reg);
     } else if (n->kind() == BFNodeKind::DpDec) {
       _assembler.sub_imm32_reg64((uint32_t)as_count_node(n)->count(), data_array_reg);
@@ -371,29 +368,100 @@ BFCompiledMethod* BFCompiler::compile_loop_node(BFLoopNode* node, bool is_entry)
     } else if (n->kind() == BFNodeKind::ByteDec) {
       _assembler.sub_imm8_mem8(as_count_node(n)->count(), data_array_reg);
     } else if (n->kind() == BFNodeKind::DpOutput) {
-      // The number of the syscall is stored in rax
       _assembler.mov_imm32_reg32(1, Assembler::Register::A);
-      // File handle is stored in rdi
       _assembler.mov_imm32_reg32(1, Assembler::Register::DI);
-      // Number of bytes is stored in rdx
       _assembler.mov_imm32_reg32(1, Assembler::Register::D);
-
       _assembler.syscall();
     } else if (n->kind() == BFNodeKind::DpInput) {
-      // The number of the syscall is stored in rax
       _assembler.mov_imm32_reg32(0, Assembler::Register::A);
-      // File handle is stored in rdi
       _assembler.mov_imm32_reg32(0, Assembler::Register::DI);
-      // Number of bytes is stored in rdx
       _assembler.mov_imm32_reg32(1, Assembler::Register::D);
-
       _assembler.syscall();
     } else if (n->kind() == BFNodeKind::Loop) {
+      // We don't care about the result here as the inner loop's body is emitted
+      // into our "outer" loop body
       (void)compile_loop_node((BFLoopNode*)n, false);
     } else if (n->kind() == BFNodeKind::Clear) {
       _assembler.mov_imm8_mem8(0, data_array_reg);
     }
   }
+}
+
+BFCompiler::BFCompiler(bool start_compiler_thread)
+  : _code_blob(CodeBlobSize),
+    _assembler(&_code_blob),
+    _compile_queue_lock(),
+    _compile_queue_cv(),
+    _compile_queue(),
+    _compiler_thread_running(true),
+    _compiler_thread(nullptr) {
+
+  if (start_compiler_thread) {
+    _compiler_thread = std::make_unique<std::thread>(&BFCompiler::compiler_thread_fn, this);
+  }
+}
+
+BFCompiler::~BFCompiler() {
+  if (_compiler_thread != nullptr) {
+    _compiler_thread_running.store(false);
+    _compile_queue_cv.notify_one();
+    _compiler_thread->join();
+  }
+}
+
+void BFCompiler::send_compilation_request(BFLoopNode* loop_node) {
+  assert(_compiler_thread != nullptr && _compiler_thread_running);
+
+  {
+    std::unique_lock lock(_compile_queue_lock);
+    _compile_queue.push(loop_node);
+  }
+
+  // Notify thread
+  _compile_queue_cv.notify_one();
+}
+
+BFCompiledMethod* BFCompiler::compile_loop_node(BFLoopNode* loop_node, bool is_entry) {
+  if (loop_node->profile()->compiled_method() != nullptr) {
+    // A loop should only be compiled as en entry loop once
+    assert(!is_entry);
+  }
+
+  void* entrypoint = _code_blob.get_current_entrypoint();
+
+  if (is_entry) {
+    // The argument is in rdi (pointer to the data array), but we move it to rsi
+    // immediately since the syscalls (read and write) expect to have the memory
+    // location to print from there, so we don't have to juggle registers.
+    _assembler.mov_reg64_to_reg64(Assembler::Register::DI, DataArrayRegister);
+  }
+
+  void* zero_check_start = _code_blob.get_current_entrypoint();
+
+  // Loop start/end condition check: If the check is true, i.e., the data at the
+  // current data pointer is 0, then we don't jump and go straight to the return
+  _assembler.mov_mem8_reg8(DataArrayRegister, Assembler::Register::A);
+  _assembler.test_reg8(Assembler::Register::A);
+
+  void* backpatch_jmp_addr = nullptr;
+
+  if (is_entry) {
+    // If this is the entry loop, just emit a return instruction to return back
+    _assembler.jnz_rel32(4);
+    _assembler.mov_reg64_to_reg64(DataArrayRegister, Assembler::Register::A);
+    _assembler.ret_near();
+  } else {
+    // If this is not the entry loop, we're inside a nested loop, so the "return"
+    // condition should jump to the instruction just after the current loop. We
+    // achieve this by emitting an instruction and then "backpatching" it to jump
+    // to the offset just after emitting the entire loop body.
+    _assembler.jnz_rel32(5);
+    _assembler.jmp_imm32(0);
+    backpatch_jmp_addr = _code_blob.get_current_entrypoint();
+  }
+
+  // Compile loop body
+  compile_node_list(loop_node->nodes());
 
   void* loop_body_end = _code_blob.get_current_entrypoint();
   int relative_offset_to_zero_check = (uintptr_t)loop_body_end - (uintptr_t)zero_check_start;
@@ -407,11 +475,11 @@ BFCompiledMethod* BFCompiler::compile_loop_node(BFLoopNode* node, bool is_entry)
     size_t method_size = (uintptr_t)method_end - (uintptr_t)entrypoint;
 
     BFCompiledMethod* compiled_method = new BFCompiledMethod((CompiledMethod)entrypoint, method_size);
-    return compiled_method;
-
     if (debug_mode) {
       compiled_method->print_method(false);
     }
+
+    return compiled_method;
   } else {
     assert(backpatch_jmp_addr != nullptr);
 
@@ -424,80 +492,57 @@ BFCompiledMethod* BFCompiler::compile_loop_node(BFLoopNode* node, bool is_entry)
   }
 }
 
-void BFProgramExecutor::compiler_thread_fn() {
-  while (_compiler_thread_running.load()) {
-    std::unique_lock lock(_compile_queue_lock);
-    _compile_queue_cv.wait(lock);
-    // Handle spurious wake ups
-    if (_compile_queue.empty()) {
-      continue;
-    }
+BFCompiledMethod* BFCompiler::compile_aot(BFNodeList* node_list) {
+  void* entrypoint = _code_blob.get_current_entrypoint();
 
-    BFLoopNode* loop_node = _compile_queue.front();
-    _compile_queue.pop();
+  _assembler.mov_reg64_to_reg64(Assembler::Register::DI, DataArrayRegister);
 
-    // Compile method
-    BFCompiledMethod* compiled_method = _compiler.compile_loop_node(loop_node, true);
-    loop_node->set_compiled_method(compiled_method);
+  compile_node_list(node_list);
+
+  // Return from the function
+  _assembler.ret_near();
+
+  void* method_end = _code_blob.get_current_entrypoint();
+  size_t method_size = (uintptr_t)method_end - (uintptr_t)entrypoint;
+
+  BFCompiledMethod* compiled_method = new BFCompiledMethod((CompiledMethod)entrypoint, method_size);
+  if (debug_mode) {
+    compiled_method->print_method(false);
   }
+
+  return compiled_method;
 }
 
-BFProgramExecutor::BFProgramExecutor(BFAST* ast, const std::string& program_input, BFProgramExecutor::ExecutionMode execution_mode)
-  : _compile_queue_lock(),
-    _compile_queue_cv(),
-    _compile_queue(),
-    _compiler_thread_running(true),
-    _compiler_thread(nullptr),
-    _execution_mode(execution_mode),
+BFProgramExecutor::BFProgramExecutor(BFAST* ast, BFProgramExecutor::ExecutionMode execution_mode)
+  : _execution_mode(execution_mode),
     _ast(ast),
-    _data(30000, 0),
-    _data_pointer(0),
-    _interpreter(this),
-    _compiler(),
-    _current_input_idx(0),
-    _input(program_input) {
+    _memory(),
+    _interpreter(&_memory, execution_mode == ExecutionMode::JustInTime, [this](BFLoopNode* loop_node) { profile_loop_node(loop_node); }),
+    _compiler(execution_mode == ExecutionMode::JustInTime) {}
 
-  if (execution_mode == ExecutionMode::AheadOfTime) {
-    _compiler_thread = std::make_unique<std::thread>(&BFProgramExecutor::compiler_thread_fn, this);
-  }
-}
-
-BFProgramExecutor::~BFProgramExecutor() {
-  if (_compiler_thread != nullptr) {
-    _compiler_thread_running.store(false);
-    _compile_queue_cv.notify_one();
-    _compiler_thread->join();
-  }
-}
-
-std::vector<uint8_t>* BFProgramExecutor::data() { return &_data; }
-
-uint32_t* BFProgramExecutor::data_pointer() { return &_data_pointer; }
+BFProgramExecutor::ExecutionMode BFProgramExecutor::execution_mode() { return _execution_mode; }
 
 void BFProgramExecutor::profile_loop_node(BFLoopNode* loop_node) {
-  loop_node->inc_execution_count();
+  loop_node->profile()->inc_execution_count();
 
-  // Check if we should enqueue this loop to be compiled
-  // TODO: Fix constants for these and a weighted, maybe recursive, size
-  // for nested loops
-  if (loop_node->nodes()->size() > 10 ||
-      loop_node->profile()->_execution_count > 50) {
-    bool expected = false;
-    if (loop_node->profile()->_compilation_queued.compare_exchange_strong(expected, true)) {
-      {
-        std::scoped_lock<std::mutex> lock(_compile_queue_lock);
-        _compile_queue.push(loop_node);
-      }
-      _compile_queue_cv.notify_one();
+  // Check if we should send a compilation requets for this loop to be compiled
+  if (loop_node->nodes()->size() > CompileThresholdLoopSize ||
+      loop_node->profile()->execution_count() > CompileThresholdExecutionCount) {
+    if (loop_node->profile()->mark_compilation_queued()) {
+      _compiler.send_compilation_request(loop_node);
     }
   }
 }
 
 void BFProgramExecutor::execute() {
-  for (BFNode* n : *_ast->nodes()) {
-    // TODO: Fix AOT-mode.
+  if (_execution_mode == ExecutionMode::AheadOfTime) {
+    BFCompiledMethod* compiled_method = _compiler.compile_aot(_ast->nodes());
+    (void)(*compiled_method->method())(_memory.current_data_addr());
+    delete compiled_method;
+    return;
+  }
 
-    // Interpret the node
+  for (BFNode* n : *_ast->nodes()) {
     _interpreter.interpret_node(n);
   }
 }
@@ -505,58 +550,79 @@ void BFProgramExecutor::execute() {
 void BFProgramExecutor::debug_print() {
   printf("Data state:\n");
   for (size_t i = 0; i < 10; i++) {
-    printf("data[%zu]: %d\n", i, _data[i]);
+    printf("data[%zu]: %d\n", i, _memory.data_at(i));
   }
 }
 
-static void print_helper(const char* debug_flag, const char* executable) {
-  printf("No input given. Usage: %s [%s] <program sequence>\n", debug_flag, executable);
+struct CLIOptions {
+  bool debug = false;
+  BFProgramExecutor::ExecutionMode execution_mode = BFProgramExecutor::ExecutionMode::JustInTime;
+  std::string program;
+};
+
+static void print_usage(const char* executable) {
+  printf("Usage: %s [--debug] [--aot|--jit|--interp] <program>\n", executable);
+  printf("Execution mode defaults to JIT when not specified\n");
+}
+
+static bool parse_args(int argc, const char** argv, CLIOptions& opts) {
+  int i = 1;
+
+  if (argc < 2) {
+    return false;
+  }
+
+  if (strcmp(argv[i], "--debug") == 0) {
+    opts.debug = true;
+    i++;
+  }
+
+  if (i < argc && strcmp(argv[i], "--aot") == 0) {
+    opts.execution_mode = BFProgramExecutor::ExecutionMode::AheadOfTime;
+    i++;
+  } else if (i < argc && strcmp(argv[i], "--jit") == 0) {
+    opts.execution_mode = BFProgramExecutor::ExecutionMode::JustInTime;
+    i++;
+  } else if (i < argc && strcmp(argv[i], "--interp") == 0) {
+    opts.execution_mode = BFProgramExecutor::ExecutionMode::Interpreter;
+    i++;
+  }
+
+  if (i >= argc) {
+    return false;
+  }
+
+  opts.program = argv[i];
+  return true;
 }
 
 int main(int argc, const char** argv) {
-  const char* debug_flag = "--debug";
-
-  if (argc < 2) {
-    print_helper(debug_flag, argv[0]);
+  CLIOptions opts;
+  if (!parse_args(argc, argv, opts)) {
+    print_usage(argv[0]);
     return 1;
   }
 
-  // Check if the first argument is the debug flag
-  if (strcmp(argv[1], debug_flag) == 0) {
-    // The second argument is the debug flag, check if there is a third argument or not
-    if (argc < 3) {
-      print_helper(debug_flag, argv[0]);
-      return 1;
-    }
+  debug_mode = opts.debug;
 
-    debug_mode = true;
-  }
-
-  const int argv_offset = debug_mode ? 1 : 0;
-
-  std::string program(argv[1 + argv_offset]);
-  std::string program_input;
-
-  // Only set the program_input if the user has supplied it
-  if (argc > (2 + argv_offset)) {
-    program_input = argv[2 + argv_offset];
-  }
-
-  BFParser parser(program);
+  BFParser parser(opts.program);
   BFAST ast = parser.parse();
+
   if (debug_mode) {
     ast.print();
   }
 
   BFOptimizer::apply_run_length_encoding(ast.nodes());
   BFOptimizer::detect_clear_cell(ast.nodes());
+
   if (debug_mode) {
     printf("After optimization:\n");
     ast.print();
   }
 
-  BFProgramExecutor executor(&ast, program_input, BFProgramExecutor::ExecutionMode::AheadOfTime);
+  BFProgramExecutor executor(&ast, opts.execution_mode);
   executor.execute();
+
   if (debug_mode) {
     executor.debug_print();
   }
