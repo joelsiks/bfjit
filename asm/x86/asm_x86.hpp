@@ -1,24 +1,12 @@
-#ifndef ASM_HPP
-#define ASM_HPP
+#ifndef ASM_X86_HPP
+#define ASM_X86_HPP
 
 #include <cstdint>
 #include <cstdlib>
 
-class CodeBlob {
-  uint8_t* _code_blob;
-  size_t _blob_size;
-  size_t _current_byte_in_blob;
+#include "../codeblob.hpp"
 
-  static uint8_t* allocate_memory(size_t size);
-
-public:
-  CodeBlob(size_t size);
-
-  void* get_current_entrypoint();
-  void emit_byte(uint8_t byte);
-};
-
-class Assembler {
+class AssemblerX86 {
 public:
   // Used to encode Registers
   enum class Register : uint8_t {
@@ -94,7 +82,7 @@ private:
   uint8_t build_modrm(ModRM mod, uint8_t reg, uint8_t rm);
 
 public:
-  Assembler(CodeBlob* code_blob);
+  AssemblerX86(CodeBlob* code_blob);
 
   void push_reg(Register reg);
   void pop_reg(Register reg);
@@ -122,4 +110,4 @@ public:
   void syscall();
 };
 
-#endif // ASM_HPP
+#endif // ASM_X86_HPP
