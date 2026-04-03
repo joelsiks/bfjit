@@ -1,8 +1,4 @@
 
-#include <cassert>
-#include <cstdio>
-#include <sys/mman.h>
-
 #include "asm_x86.hpp"
 
 uint32_t AssemblerX86::twos_complement(int32_t value) {

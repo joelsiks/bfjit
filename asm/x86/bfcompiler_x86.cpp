@@ -4,11 +4,6 @@
 #include "bfcompiler_x86.hpp"
 
 void BFCompilerX86::compile_node_list(BFNodeList* node_list) {
-  // The argument is in rdi (pointer to the data array), but we move it to rsi
-  // immediately since the syscalls (read and write) expect to have the memory
-  // location to print from there, so we don't have to juggle registers.
-  AssemblerX86::Register data_array_reg = AssemblerX86::Register::SI;
-
   // Arguments for syscalls are:
   //  1. sycall number in rax
   //  2. file handle in rdi (stdin/stdout)
@@ -17,13 +12,13 @@ void BFCompilerX86::compile_node_list(BFNodeList* node_list) {
 
   for (BFNode* n : *node_list) {
     if (n->kind() == BFNodeKind::DpInc) {
-      _assembler.add_imm32_reg64((uint32_t)as_count_node(n)->count(), data_array_reg);
+      _assembler.add_imm32_reg64((uint32_t)as_count_node(n)->count(), DataArrayRegister);
     } else if (n->kind() == BFNodeKind::DpDec) {
-      _assembler.sub_imm32_reg64((uint32_t)as_count_node(n)->count(), data_array_reg);
+      _assembler.sub_imm32_reg64((uint32_t)as_count_node(n)->count(), DataArrayRegister);
     } else if (n->kind() == BFNodeKind::ByteInc) {
-      _assembler.add_imm8_mem8(as_count_node(n)->count(), data_array_reg);
+      _assembler.add_imm8_mem8(as_count_node(n)->count(), DataArrayRegister);
     } else if (n->kind() == BFNodeKind::ByteDec) {
-      _assembler.sub_imm8_mem8(as_count_node(n)->count(), data_array_reg);
+      _assembler.sub_imm8_mem8(as_count_node(n)->count(), DataArrayRegister);
     } else if (n->kind() == BFNodeKind::DpOutput) {
       _assembler.mov_imm32_reg32(1, AssemblerX86::Register::A);
       _assembler.mov_imm32_reg32(1, AssemblerX86::Register::DI);
@@ -39,7 +34,7 @@ void BFCompilerX86::compile_node_list(BFNodeList* node_list) {
       // into our "outer" loop body
       (void)compile_loop_node((BFLoopNode*)n, false);
     } else if (n->kind() == BFNodeKind::Clear) {
-      _assembler.mov_imm8_mem8(0, data_array_reg);
+      _assembler.mov_imm8_mem8(0, DataArrayRegister);
     }
   }
 }
@@ -50,7 +45,7 @@ BFCompilerX86::BFCompilerX86(bool start_compiler_thread)
 
 BFCompiledMethod* BFCompilerX86::compile_loop_node(BFLoopNode* loop_node, bool is_entry) {
   if (loop_node->profile()->compiled_method() != nullptr) {
-    // A loop should only be compiled as en entry loop once
+    // A loop should only be compiled as an entry loop once
     assert(!is_entry);
   }
 
@@ -123,6 +118,9 @@ BFCompiledMethod* BFCompilerX86::compile_loop_node(BFLoopNode* loop_node, bool i
 BFCompiledMethod* BFCompilerX86::compile_aot(BFNodeList* node_list) {
   void* entrypoint = _code_blob.get_current_entrypoint();
 
+  // The argument is in rdi (pointer to the data array), but we move it to rsi
+  // immediately since the syscalls (read and write) expect to have the memory
+  // location to print from there, so we don't have to juggle registers.
   _assembler.mov_reg64_to_reg64(AssemblerX86::Register::DI, DataArrayRegister);
 
   compile_node_list(node_list);

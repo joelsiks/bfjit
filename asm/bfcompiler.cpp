@@ -80,7 +80,7 @@ BFCompiler* BFCompiler::create(bool is_jit) {
 #elif defined(_ARCH_AARCH64)
   return new BFCompilerAArch64(is_jit);
 #else
-  // This should not happen, unsupported platform
+  // Unsupported platform. This should not happen.
   assert(false);
   return nullptr;
 #endif
