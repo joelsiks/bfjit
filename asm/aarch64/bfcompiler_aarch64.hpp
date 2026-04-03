@@ -7,7 +7,10 @@
 class BFCompilerAArch64 : public BFCompiler {
 private:
   static const size_t CodeBlobSize = 2 * 1024 * 1024; // 2MB
-  //static const AssemblerAArch64::Register DataArrayRegister = AssemblerX86::Register::SI;
+  static const AssemblerAArch64::Register DataArrayRegister = AssemblerAArch64::Register::r1;
+
+  // AArch64 uses a fixed instruction length of 32 bits (4 bytes)
+  static const size_t InstructionSize = 4;
 
   AssemblerAArch64 _assembler;
 

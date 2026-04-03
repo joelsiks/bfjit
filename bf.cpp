@@ -1,3 +1,4 @@
+
 #include <cstdio>
 #include <cstring>
 #include <cassert>
@@ -5,7 +6,6 @@
 
 #include "bf.hpp"
 #include "asm/bfcompiler.hpp"
-
 
 static bool debug_mode = false;
 BFAST::BFAST(BFNodeList&& nodes) : _nodes(nodes) {}

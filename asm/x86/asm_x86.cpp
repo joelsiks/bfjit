@@ -40,7 +40,8 @@ void AssemblerX86::pop_reg(Register reg) {
 };
 
 void AssemblerX86::ret_near() {
-  _code_blob->emit_byte(0xC3);
+  const uint8_t opcode = 0xC3;
+  _code_blob->emit_byte(opcode);
 }
 
 void AssemblerX86::mov_reg64_to_reg64(Register source, Register dest) {

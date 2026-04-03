@@ -38,3 +38,14 @@ void CodeBlob::emit_byte(uint8_t byte) {
     exit(1);
   }
 }
+
+void CodeBlob::emit_dword(uint32_t dword) {
+  *((uint32_t*)(_code_blob + _current_byte_in_blob)) = dword;
+
+  _current_byte_in_blob += sizeof(uint32_t);
+
+  if (_current_byte_in_blob >= _blob_size) {
+    printf("Writing out of bounds in blob. size %zu, idx: %zu\n", _blob_size, _current_byte_in_blob);
+    exit(1);
+  }
+}

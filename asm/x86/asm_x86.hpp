@@ -28,6 +28,11 @@ public:
     R15 = 0xF,
   };
 
+  enum class Syscall : uint32_t {
+    Read = 0,
+    Write = 1,
+  };
+
   // REX (register extension) is used for extending the instruction
   enum class RexMode : uint8_t {
     B = 1 << 0, // extends ModRM.r/m, SIB.base or opcode reg field
