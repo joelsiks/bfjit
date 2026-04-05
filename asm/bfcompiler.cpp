@@ -53,13 +53,14 @@ void BFCompiler::compiler_thread_fn() {
   }
 }
 
-BFCompiler::BFCompiler(size_t code_blob_size, bool start_compiler_thread)
-  : _code_blob(code_blob_size),
-    _compile_queue_lock(),
+BFCompiler::BFCompiler(size_t code_blob_size, bool start_compiler_thread, bool debug)
+  : _compile_queue_lock(),
     _compile_queue_cv(),
     _compile_queue(),
     _compiler_thread_running(true),
-    _compiler_thread(nullptr) {
+    _compiler_thread(nullptr),
+    _code_blob(code_blob_size),
+    _debug(debug) {
 
   if (start_compiler_thread) {
     _compiler_thread = std::make_unique<std::thread>(&BFCompiler::compiler_thread_fn, this);
@@ -74,11 +75,11 @@ BFCompiler::~BFCompiler() {
   }
 }
 
-BFCompiler* BFCompiler::create(bool is_jit) {
+BFCompiler* BFCompiler::create(bool is_jit, bool debug) {
 #if defined(_ARCH_X86)
-  return new BFCompilerX86(is_jit);
+  return new BFCompilerX86(is_jit, debug);
 #elif defined(_ARCH_AARCH64)
-  return new BFCompilerAArch64(is_jit);
+  return new BFCompilerAArch64(is_jit, debug);
 #else
   // Unsupported platform. This should not happen.
   assert(false);

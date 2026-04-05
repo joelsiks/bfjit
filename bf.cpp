@@ -7,7 +7,6 @@
 #include "bf.hpp"
 #include "asm/bfcompiler.hpp"
 
-static bool debug_mode = false;
 BFAST::BFAST(BFNodeList&& nodes) : _nodes(nodes) {}
 
 BFAST::~BFAST() {
@@ -225,15 +224,16 @@ void BFInterpreter::interpret_node(BFNode* node) {
   }
 }
 
-BFProgramExecutor::BFProgramExecutor(BFAST* ast, BFProgramExecutor::ExecutionMode execution_mode)
+BFProgramExecutor::BFProgramExecutor(BFAST* ast, BFProgramExecutor::ExecutionMode execution_mode, bool debug)
   : _execution_mode(execution_mode),
+    _debug(debug),
     _ast(ast),
     _memory(),
     _interpreter(&_memory, execution_mode == ExecutionMode::JustInTime, [this](BFLoopNode* loop_node) { profile_loop_node(loop_node); }),
     _compiler(nullptr) {
 
   const bool is_jit = execution_mode == BFProgramExecutor::ExecutionMode::JustInTime;
-  _compiler = BFCompiler::create(is_jit);
+  _compiler = BFCompiler::create(is_jit, _debug);
 }
 
 BFProgramExecutor::ExecutionMode BFProgramExecutor::execution_mode() { return _execution_mode; }
@@ -260,13 +260,6 @@ void BFProgramExecutor::execute() {
 
   for (BFNode* n : *_ast->nodes()) {
     _interpreter.interpret_node(n);
-  }
-}
-
-void BFProgramExecutor::debug_print() {
-  printf("Data state:\n");
-  for (size_t i = 0; i < 10; i++) {
-    printf("data[%zu]: %d\n", i, _memory.data_at(i));
   }
 }
 
@@ -319,27 +312,22 @@ int main(int argc, const char** argv) {
     return 1;
   }
 
-  debug_mode = opts.debug;
-
   BFParser parser(opts.program);
   BFAST ast = parser.parse();
 
-  if (debug_mode) {
+  if (opts.debug) {
+    printf("Before optimization:\n");
     ast.print();
   }
 
   BFOptimizer::apply_run_length_encoding(ast.nodes());
   BFOptimizer::detect_clear_cell(ast.nodes());
 
-  if (debug_mode) {
+  if (opts.debug) {
     printf("After optimization:\n");
     ast.print();
   }
 
-  BFProgramExecutor executor(&ast, opts.execution_mode);
+  BFProgramExecutor executor(&ast, opts.execution_mode, opts.debug);
   executor.execute();
-
-  if (debug_mode) {
-    executor.debug_print();
-  }
 }

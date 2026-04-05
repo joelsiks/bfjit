@@ -4,8 +4,6 @@
 #include "bfcompiler_aarch64.hpp"
 
 void BFCompilerAArch64::compile_node_list(BFNodeList* node_list) {
-  // TODO: Document why the "and w0, w0, 255" works...
-
   // Arguments for syscalls are:
   //  1. syscall number in r8 (read = 63, write = 64)
   //  2. file handle in r0 (stdin/stdout)
@@ -18,19 +16,11 @@ void BFCompilerAArch64::compile_node_list(BFNodeList* node_list) {
     } else if (n->kind() == BFNodeKind::DpDec) {
       _assembler.sub_imm12(DataArrayRegister, DataArrayRegister, as_count_node(n)->count());
     } else if (n->kind() == BFNodeKind::ByteInc) {
-      // ldrb w0, [x1]
-      // add  w0, w0, N
-      // and  w0, w0, 255
-      // strb w0, [x1]
       _assembler.ldrb_imm12(DataArrayRegister, AssemblerAArch64::Register::r0);
       _assembler.add_imm12(AssemblerAArch64::Register::r0, AssemblerAArch64::Register::r0, as_count_node(n)->count());
       _assembler.and_imm12_32bit(AssemblerAArch64::Register::r0, AssemblerAArch64::Register::r0, 255);
       _assembler.strb_imm12(DataArrayRegister, AssemblerAArch64::Register::r0);
     } else if (n->kind() == BFNodeKind::ByteDec) {
-      // ldrb w0, [x1]
-      // sub  w0, w0, N
-      // and  w0, w0, 255
-      // strb w0, [x1]
       _assembler.ldrb_imm12(DataArrayRegister, AssemblerAArch64::Register::r0);
       _assembler.sub_imm12(AssemblerAArch64::Register::r0, AssemblerAArch64::Register::r0, as_count_node(n)->count());
       _assembler.and_imm12_32bit(AssemblerAArch64::Register::r0, AssemblerAArch64::Register::r0, 255);
@@ -55,8 +45,8 @@ void BFCompilerAArch64::compile_node_list(BFNodeList* node_list) {
   }
 }
 
-BFCompilerAArch64::BFCompilerAArch64(bool start_compiler_thread)
-  : BFCompiler(CodeBlobSize, start_compiler_thread),
+BFCompilerAArch64::BFCompilerAArch64(bool start_compiler_thread, bool debug)
+  : BFCompiler(CodeBlobSize, start_compiler_thread, debug),
     _assembler(&_code_blob) {}
 
 BFCompiledMethod* BFCompilerAArch64::compile_loop_node(BFLoopNode* loop_node, bool is_entry) {
@@ -75,7 +65,8 @@ BFCompiledMethod* BFCompilerAArch64::compile_loop_node(BFLoopNode* loop_node, bo
   void* const zero_check_start = _code_blob.get_current_entrypoint();
 
   // Loop start/end condition check: If the check is true, i.e., the data at the
-  // current data pointer is 0, then we don't jump and go straight to the return
+  // current data pointer is 0, then we don't jump and go straight to the return.
+  // TODO: We could probably use a "cbnz" instruction here instead of the tst.
   _assembler.ldrb_imm12(DataArrayRegister, AssemblerAArch64::Register::r0);
   _assembler.tst32bit(AssemblerAArch64::Register::r0, AssemblerAArch64::Register::r0);
 
@@ -93,7 +84,7 @@ BFCompiledMethod* BFCompilerAArch64::compile_loop_node(BFLoopNode* loop_node, bo
     // to the offset just after emitting the entire loop body.
     _assembler.bcond(2, AssemblerAArch64::BranchCondition::NE);
     backpatch_b_addr = _code_blob.get_current_entrypoint();
-    _assembler.b(8);
+    _assembler.b(0); // Placeholder immediate
   }
 
   // Compile loop body
@@ -111,8 +102,9 @@ BFCompiledMethod* BFCompilerAArch64::compile_loop_node(BFLoopNode* loop_node, bo
     const size_t method_size = (uintptr_t)method_end - (uintptr_t)entrypoint;
 
     BFCompiledMethod* compiled_method = new BFCompiledMethod((CompiledMethod)entrypoint, method_size);
-    // TODO: Fix debug mode
-    compiled_method->print_method(false);
+    if (_debug) {
+      compiled_method->print_method(false);
+    }
 
     return compiled_method;
   } else {
@@ -143,8 +135,9 @@ BFCompiledMethod* BFCompilerAArch64::compile_aot(BFNodeList* node_list) {
   const size_t method_size = (uintptr_t)method_end - (uintptr_t)entrypoint;
 
   BFCompiledMethod* compiled_method = new BFCompiledMethod((CompiledMethod)entrypoint, method_size);
-  // TODO: Fix debug mode
-  compiled_method->print_method(false);
+  if (_debug) {
+    compiled_method->print_method(false);
+  }
 
   return compiled_method;
 }

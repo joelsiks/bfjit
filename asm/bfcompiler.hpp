@@ -38,15 +38,17 @@ protected:
 
   CodeBlob _code_blob;
 
+  bool _debug;
+
   void compiler_thread_fn();
 
   virtual void compile_node_list(BFNodeList* node_list) = 0;
 
 public:
-  BFCompiler(size_t code_blob_size, bool start_compiler_thread);
+  BFCompiler(size_t code_blob_size, bool start_compiler_thread, bool debug);
   ~BFCompiler();
 
-  static BFCompiler* create(bool is_jit);
+  static BFCompiler* create(bool is_jit, bool debug);
 
   void send_compilation_request(BFLoopNode* loop_node);
 

@@ -39,8 +39,8 @@ void BFCompilerX86::compile_node_list(BFNodeList* node_list) {
   }
 }
 
-BFCompilerX86::BFCompilerX86(bool start_compiler_thread)
-  : BFCompiler(CodeBlobSize, start_compiler_thread),
+BFCompilerX86::BFCompilerX86(bool start_compiler_thread, bool debug)
+  : BFCompiler(CodeBlobSize, start_compiler_thread, debug),
     _assembler(&_code_blob) {}
 
 BFCompiledMethod* BFCompilerX86::compile_loop_node(BFLoopNode* loop_node, bool is_entry) {
@@ -97,8 +97,7 @@ BFCompiledMethod* BFCompilerX86::compile_loop_node(BFLoopNode* loop_node, bool i
     const size_t method_size = (uintptr_t)method_end - (uintptr_t)entrypoint;
 
     BFCompiledMethod* compiled_method = new BFCompiledMethod((CompiledMethod)entrypoint, method_size);
-    // TODO: Fix debug mode
-    if (true) {
+    if (_debug) {
       compiled_method->print_method(false);
     }
 
@@ -132,8 +131,7 @@ BFCompiledMethod* BFCompilerX86::compile_aot(BFNodeList* node_list) {
   const size_t method_size = (uintptr_t)method_end - (uintptr_t)entrypoint;
 
   BFCompiledMethod* compiled_method = new BFCompiledMethod((CompiledMethod)entrypoint, method_size);
-  // TODO: Fix debug mode
-  if (true) {
+  if (_debug) {
     compiled_method->print_method(false);
   }
 

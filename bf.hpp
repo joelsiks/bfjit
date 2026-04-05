@@ -77,6 +77,7 @@ private:
   static const size_t CompileThresholdExecutionCount = 50;
 
   ExecutionMode _execution_mode;
+  bool _debug;
   BFAST* _ast;
   BFMemory _memory;
 
@@ -84,14 +85,12 @@ private:
   BFCompiler* _compiler;
 
 public:
-  BFProgramExecutor(BFAST* ast, ExecutionMode execution_mode);
+  BFProgramExecutor(BFAST* ast, ExecutionMode execution_mode, bool debug);
 
   ExecutionMode execution_mode();
 
   void profile_loop_node(BFLoopNode* loop_node);
   void execute();
-
-  void debug_print();
 };
 
 #endif // BF_HPP

@@ -93,8 +93,6 @@ AssemblerAArch64::AssemblerAArch64(CodeBlob* code_blob)
   : _code_blob(code_blob) {}
 
 void AssemblerAArch64::ret() {
-  // TODO: I'm unsure if I want to encode this operation in a better way, but for
-  // now just use the "raw" 4 bytes.
   const uint32_t instruction = 0xD65F03C0;
   _code_blob->emit_dword(instruction);
 }

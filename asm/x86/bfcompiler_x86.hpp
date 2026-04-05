@@ -14,7 +14,7 @@ private:
   void compile_node_list(BFNodeList* node_list) override;
 
 public:
-  BFCompilerX86(bool start_compiler_thread);
+  BFCompilerX86(bool start_compiler_thread, bool debug);
 
   BFCompiledMethod* compile_loop_node(BFLoopNode* loop_node, bool is_entry) override;
   BFCompiledMethod* compile_aot(BFNodeList* node_list) override;
