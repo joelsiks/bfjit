@@ -36,11 +36,6 @@ public:
     sp  = 31,
   };
 
-  enum class BranchCondition : uint32_t {
-    EQ = 0b0000,
-    NE = 0b0001,
-  };
-
   enum class Syscall : uint32_t {
     Read = 63,
     Write = 64,
@@ -81,12 +76,10 @@ public:
   void ret();
   void svc();
 
-  void tst32bit(Register Rn, Register Rm);
-  void bcond(uint32_t imm19_offset, BranchCondition bc);
   void b(int32_t imm26_offset);
   void b_backpatch(uint32_t* addr, int32_t imm26_offset);
 
-  void cbnz32bit(Register Rt, int32_t imm19_offset);
+  void cbnz(Register Rt, int32_t imm19_offset, SizeFlag size_flag = SizeFlag::W32);
   void cbnz_backpatch(uint32_t* addr, int32_t imm19_offset);
 
   void orr(Register Rm, Register Rd, Register Rn);
@@ -95,7 +88,6 @@ public:
   void mov(Register Rd, uint32_t imm16);
 
   void sub_imm12(Register Rd, Register Rn, uint32_t imm12);
-
   void add_imm12(Register Rd, Register Rn, uint32_t imm12);
 
   // Rn is the base address register. Rt is the register being loaded into or stored from.
@@ -104,9 +96,7 @@ public:
   // Rn is the base address register. Rt is the register being loaded into or stored from.
   void ldrb_imm12(Register Rn, Register Rt, uint32_t imm12 = 0);
 
-  void and_imm12_32bit(Register Rn, Register Rd, uint32_t imm12);
-
-  void ands(Register Rd, Register Rn, Register Rm, SizeFlag size_flag = SizeFlag::X64, uint32_t imm6_shift = 0);
+  void and_imm12(Register Rn, Register Rd, uint32_t imm12, SizeFlag size_flag = SizeFlag::W32);
 };
 
 #endif // ASM_AACH64_HPP

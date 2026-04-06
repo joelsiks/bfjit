@@ -18,12 +18,12 @@ void BFCompilerAArch64::compile_node_list(BFNodeList* node_list) {
     } else if (n->kind() == BFNodeKind::ByteInc) {
       _assembler.ldrb_imm12(DataArrayRegister, AssemblerAArch64::Register::r0);
       _assembler.add_imm12(AssemblerAArch64::Register::r0, AssemblerAArch64::Register::r0, as_count_node(n)->count());
-      _assembler.and_imm12_32bit(AssemblerAArch64::Register::r0, AssemblerAArch64::Register::r0, 255);
+      _assembler.and_imm12(AssemblerAArch64::Register::r0, AssemblerAArch64::Register::r0, 255);
       _assembler.strb_imm12(DataArrayRegister, AssemblerAArch64::Register::r0);
     } else if (n->kind() == BFNodeKind::ByteDec) {
       _assembler.ldrb_imm12(DataArrayRegister, AssemblerAArch64::Register::r0);
       _assembler.sub_imm12(AssemblerAArch64::Register::r0, AssemblerAArch64::Register::r0, as_count_node(n)->count());
-      _assembler.and_imm12_32bit(AssemblerAArch64::Register::r0, AssemblerAArch64::Register::r0, 255);
+      _assembler.and_imm12(AssemblerAArch64::Register::r0, AssemblerAArch64::Register::r0, 255);
       _assembler.strb_imm12(DataArrayRegister, AssemblerAArch64::Register::r0);
     } else if (n->kind() == BFNodeKind::DpOutput) {
       _assembler.mov(AssemblerAArch64::Register::r8, (uint32_t)AssemblerAArch64::Syscall::Write);
@@ -68,7 +68,7 @@ BFCompiledMethod* BFCompilerAArch64::compile_loop_node(BFLoopNode* loop_node, bo
   // current data pointer is 0, then we don't jump and go straight to the return.
   _assembler.ldrb_imm12(DataArrayRegister, AssemblerAArch64::Register::r0);
   void* const zero_check_branch = _code_blob.get_current_entrypoint();
-  _assembler.cbnz32bit(AssemblerAArch64::Register::r0, 0 /* placeholder */);
+  _assembler.cbnz(AssemblerAArch64::Register::r0, 0 /* placeholder */);
 
   void* backpatch_b_addr = nullptr;
 

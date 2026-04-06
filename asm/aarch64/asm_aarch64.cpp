@@ -102,23 +102,6 @@ void AssemblerAArch64::svc() {
   _code_blob->emit_dword(instruction);
 }
 
-void AssemblerAArch64::tst32bit(Register Rn, Register Rm) {
-  ands(Register::zr, Rn, Rm, SizeFlag::W32, 0);
-}
-
-void AssemblerAArch64::bcond(uint32_t imm19_offset, BranchCondition bc) {
-  assert(check_no_invalid_bits_imm(imm19_offset, 19));
-
-  const uint32_t opc = 0b01010100 << 24;
-  const uint32_t imm = imm19_offset << 5;
-  const uint32_t o0 = 0b0 << 4;
-  const uint32_t bc_bits = (uint32_t)bc;
-
-  const uint32_t instruction = opc | imm | o0 | bc_bits;
-
-  _code_blob->emit_dword(instruction);
-}
-
 void AssemblerAArch64::b(int32_t imm26_offset) {
   assert(imm26_offset < 0 || check_no_invalid_bits_imm(imm26_offset, 26));
 
@@ -142,10 +125,10 @@ void AssemblerAArch64::b_backpatch(uint32_t* addr, int32_t imm26_offset) {
   *addr = new_instruction;
 }
 
-void AssemblerAArch64::cbnz32bit(Register Rt, int32_t imm19_offset) {
+void AssemblerAArch64::cbnz(Register Rt, int32_t imm19_offset, SizeFlag size_flag) {
   assert(check_no_invalid_bits_imm(imm19_offset, 19));
 
-  const uint32_t sf = 0b0 << 31;
+  const uint32_t sf = (uint32_t)size_flag << 31;
   const uint32_t opc = 0b011010 << 25;
   const uint32_t op = 0b1 << 24;
   const uint32_t imm = imm19_offset << 5;
@@ -218,10 +201,10 @@ void AssemblerAArch64::ldrb_imm12(Register Rn, Register Rt, uint32_t imm12) {
   _code_blob->emit_dword(build_ldrbstrb(Rn, Rt, imm12, LoadStoreMode::Load));
 }
 
-void AssemblerAArch64::and_imm12_32bit(Register Rn, Register Rd, uint32_t imm12) {
+void AssemblerAArch64::and_imm12(Register Rn, Register Rd, uint32_t imm12, SizeFlag size_flag) {
   assert(check_no_invalid_bits_imm(imm12, 12));
 
-  const uint32_t sf = 0b0 << 31; // Is 0 for 32-bit instructions
+  const uint32_t sf = (uint32_t)size_flag << 31;
   const uint32_t opc = (uint32_t)0b00 << 29;
   const uint32_t opcode_fixed = 0b100100 << 23;
 
@@ -233,24 +216,6 @@ void AssemblerAArch64::and_imm12_32bit(Register Rn, Register Rd, uint32_t imm12)
   const uint32_t rd_bits = (uint32_t)Rd;
 
   uint32_t instruction = sf | opc | opcode_fixed | (bmi._n << 22) | (bmi._immr << 16) | (bmi._imms << 10) | rn_bits | rd_bits;
-
-  _code_blob->emit_dword(instruction);
-}
-
-void AssemblerAArch64::ands(Register Rd, Register Rn, Register Rm, SizeFlag size_flag, uint32_t imm6_shift) {
-  assert(check_no_invalid_bits_imm(imm6_shift, 6));
-
-  const uint32_t sf = (uint32_t)size_flag << 31;
-  const uint32_t opc = 0b11 << 29;
-  const uint32_t mode = 0b01010 << 24;
-  const uint32_t shift = 0b00 << 22; // 0b00 = lsl (logical shift left) TODO: Fix more modes?
-  const uint32_t N = 0b0 << 21;
-  const uint32_t rm_bits = (uint32_t)Rm;
-  const uint32_t imm6 = imm6_shift << 10;
-  const uint32_t rn_bits = (uint32_t)Rn << 5;
-  const uint32_t rd_bits = (uint32_t)Rd;
-
-  const uint32_t instruction = sf | opc | mode | shift | N | rm_bits | imm6 | rn_bits | rd_bits;
 
   _code_blob->emit_dword(instruction);
 }
