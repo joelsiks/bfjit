@@ -3,6 +3,13 @@
 
 #include "bfcompiler_x86.hpp"
 
+void BFCompilerX86::rearrange_dataarrayregister() {
+  // The argument is in rdi (pointer to the data array), but we move it to rsi
+  // immediately since the syscalls (read and write) expect to have the memory
+  // location to print from there, so we don't have to juggle registers.
+  _assembler.mov_reg64_to_reg64(AssemblerX86::Register::DI, DataArrayRegister);
+}
+
 void BFCompilerX86::compile_node_list(BFNodeList* node_list) {
   // Arguments for syscalls are:
   //  1. syscall number in rax (read = 0, write = 1)
@@ -50,10 +57,7 @@ BFCompiledMethod* BFCompilerX86::compile_loop_node(BFLoopNode* loop_node, bool i
   void* const entrypoint = _code_blob.get_current_entrypoint();
 
   if (is_entry) {
-    // The argument is in rdi (pointer to the data array), but we move it to rsi
-    // immediately since the syscalls (read and write) expect to have the memory
-    // location to print from there, so we don't have to juggle registers.
-    _assembler.mov_reg64_to_reg64(AssemblerX86::Register::DI, DataArrayRegister);
+    rearrange_dataarrayregister();
   }
 
   void* const zero_check_start = _code_blob.get_current_entrypoint();
@@ -107,10 +111,7 @@ BFCompiledMethod* BFCompilerX86::compile_loop_node(BFLoopNode* loop_node, bool i
 BFCompiledMethod* BFCompilerX86::compile_aot(BFNodeList* node_list) {
   void* const entrypoint = _code_blob.get_current_entrypoint();
 
-  // The argument is in rdi (pointer to the data array), but we move it to rsi
-  // immediately since the syscalls (read and write) expect to have the memory
-  // location to print from there, so we don't have to juggle registers.
-  _assembler.mov_reg64_to_reg64(AssemblerX86::Register::DI, DataArrayRegister);
+  rearrange_dataarrayregister();
 
   compile_node_list(node_list);
 

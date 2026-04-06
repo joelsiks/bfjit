@@ -3,6 +3,13 @@
 
 #include "bfcompiler_aarch64.hpp"
 
+void BFCompilerAArch64::rearrange_dataarrayregister() {
+  // The argument is in r0 (pointer to the data array), but we move it to r1
+  // immediately since the syscalls (read and write) expect to have the memory
+  // location to print from there, so we don't have to juggle registers.
+  _assembler.mov(DataArrayRegister, AssemblerAArch64::Register::r0);
+}
+
 void BFCompilerAArch64::compile_node_list(BFNodeList* node_list) {
   // Arguments for syscalls are:
   //  1. syscall number in r8 (read = 63, write = 64)
@@ -56,10 +63,7 @@ BFCompiledMethod* BFCompilerAArch64::compile_loop_node(BFLoopNode* loop_node, bo
   void* const entrypoint = _code_blob.get_current_entrypoint();
 
   if (is_entry) {
-    // The argument is in r0 (pointer to the data array), but we move it to r1
-    // immediately since the syscalls (read and write) expect to have the memory
-    // location to print from there, so we don't have to juggle registers.
-    _assembler.mov(DataArrayRegister, AssemblerAArch64::Register::r0);
+    rearrange_dataarrayregister();
   }
 
   void* const zero_check_start = _code_blob.get_current_entrypoint();
@@ -113,10 +117,7 @@ BFCompiledMethod* BFCompilerAArch64::compile_loop_node(BFLoopNode* loop_node, bo
 BFCompiledMethod* BFCompilerAArch64::compile_aot(BFNodeList* node_list) {
   void* const entrypoint = _code_blob.get_current_entrypoint();
 
-  // The argument is in r0 (pointer to the data array), but we move it to r1
-  // immediately since the syscalls (read and write) expect to have the memory
-  // location to print from there, so we don't have to juggle registers.
-  _assembler.mov(DataArrayRegister, AssemblerAArch64::Register::r0);
+  rearrange_dataarrayregister();
 
   compile_node_list(node_list);
 

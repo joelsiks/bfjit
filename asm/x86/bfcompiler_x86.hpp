@@ -13,6 +13,8 @@ private:
 
   void compile_node_list(BFNodeList* node_list) override;
 
+  void rearrange_dataarrayregister();
+
 public:
   BFCompilerX86(bool start_compiler_thread, bool debug);
 

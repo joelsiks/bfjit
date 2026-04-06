@@ -16,6 +16,8 @@ private:
 
   void compile_node_list(BFNodeList* node_list) override;
 
+  void rearrange_dataarrayregister();
+
 public:
   BFCompilerAArch64(bool start_compiler_thread, bool debug);
 
