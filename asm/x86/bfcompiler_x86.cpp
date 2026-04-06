@@ -60,8 +60,7 @@ BFCompiledMethod* BFCompilerX86::compile_loop_node(BFLoopNode* loop_node, bool i
 
   // Loop start/end condition check: If the check is true, i.e., the data at the
   // current data pointer is 0, then we don't jump and go straight to the return
-  _assembler.mov_mem8_reg8(DataArrayRegister, AssemblerX86::Register::A);
-  _assembler.test_reg8(AssemblerX86::Register::A);
+  _assembler.cmp_mem8(DataArrayRegister, 0);
 
   void* backpatch_jmp_addr = nullptr;
 

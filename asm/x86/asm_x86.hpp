@@ -62,6 +62,7 @@ public:
   enum class ModRMExtension : uint8_t {
     ADD = 0b000,
     SUB = 0b101,
+    CMP = 0b111,
   };
 
   // SIB = Scaled index byte mode
@@ -97,7 +98,6 @@ public:
   void mov_reg64_to_reg64(Register source, Register dest);
   void mov_imm32_reg32(uint32_t immediate, Register dest);
   void mov_imm8_mem8(uint8_t immediate, Register dest);
-  void mov_mem8_reg8(Register source, Register dest);
 
   void sub_imm8_mem8(uint8_t immediate, Register dest);
   void sub_imm32_reg64(uint32_t immediate, Register dest);
@@ -105,7 +105,7 @@ public:
   void add_imm8_mem8(uint8_t immediate, Register dest);
   void add_imm32_reg64(uint32_t immediate, Register dest);
 
-  void test_reg8(Register reg);
+  void cmp_mem8(Register reg, uint8_t immediate);
 
   void jmp_imm32(int32_t relative_offset);
   void jnz_rel32(int32_t relative_offset);
