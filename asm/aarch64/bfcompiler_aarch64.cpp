@@ -122,10 +122,9 @@ BFCompiledMethod* BFCompilerAArch64::compile_aot(BFNodeList* node_list) {
 
   _assembler.ret();
 
-  void* const method_end = _code_blob.get_current_entrypoint();
-  const size_t method_size = (uintptr_t)method_end - (uintptr_t)entrypoint;
-
+  const size_t method_size = calculate_offset(entrypoint);
   BFCompiledMethod* compiled_method = new BFCompiledMethod((CompiledMethod)entrypoint, method_size);
+
   if (_debug) {
     compiled_method->print_method(false);
   }

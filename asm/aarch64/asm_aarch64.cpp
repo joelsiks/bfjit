@@ -145,7 +145,6 @@ void AssemblerAArch64::cbnz_backpatch(uint32_t* addr, int32_t imm19_offset) {
   // We've got a branch instruction at addr which needs to have its offset
   // updated (backpatched). Bits [23:5] represents the immediate, so we mask
   // out all other bits and OR in the new offset.
-
   const uint32_t mask = (0b11111111 << 24) | 0b11111;
   const uint32_t new_instruction = (*addr & mask) | (truncate_to_size_imm(imm19_offset, 19) << 5);
   *addr = new_instruction;
