@@ -5,7 +5,7 @@
 #include "bfnodes.hpp"
 #include "asm/bfcompiler.hpp"
 
-const char* node_kind_name(BFNodeKind kind) {
+static const char* node_kind_name(BFNodeKind kind) {
   switch (kind) {
     case BFNodeKind::DpInc:    return "DpInc";
     case BFNodeKind::DpDec:    return "DpDec";

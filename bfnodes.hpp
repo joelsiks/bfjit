@@ -25,8 +25,6 @@ enum class BFNodeKind {
   Clear,
 };
 
-const char* node_kind_name(BFNodeKind kind);
-
 class BFNode {
 protected:
   BFNodeKind _kind;
