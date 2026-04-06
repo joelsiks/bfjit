@@ -42,6 +42,8 @@ protected:
 
   void compiler_thread_fn();
 
+  int32_t calculate_offset(void* to);
+
   virtual void compile_node_list(BFNodeList* node_list) = 0;
 
 public:

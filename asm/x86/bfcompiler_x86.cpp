@@ -61,12 +61,13 @@ BFCompiledMethod* BFCompilerX86::compile_loop_node(BFLoopNode* loop_node, bool i
   // Loop start/end condition check: If the check is true, i.e., the data at the
   // current data pointer is 0, then we don't jump and go straight to the return
   _assembler.cmp_mem8(DataArrayRegister, 0);
+  _assembler.jnz_imm32(0 /* placeholder */);
+  void* const backpatch_jnz_addr = _code_blob.get_current_entrypoint();
 
   void* backpatch_jmp_addr = nullptr;
 
   if (is_entry) {
     // If this is the entry loop, just emit a return instruction to return back
-    _assembler.jnz_rel32(4);
     _assembler.mov_reg64_to_reg64(DataArrayRegister, AssemblerX86::Register::A);
     _assembler.ret_near();
   } else {
@@ -74,28 +75,23 @@ BFCompiledMethod* BFCompilerX86::compile_loop_node(BFLoopNode* loop_node, bool i
     // condition should jump to the instruction just after the current loop. We
     // achieve this by emitting an instruction and then "backpatching" it to jump
     // to the offset just after emitting the entire loop body.
-    _assembler.jnz_rel32(5);
-    _assembler.jmp_imm32(0);
+    _assembler.jmp_imm32(0 /* placeholder */);
     backpatch_jmp_addr = _code_blob.get_current_entrypoint();
   }
+
+  _assembler.jmp_backpatch(backpatch_jnz_addr, calculate_offset(backpatch_jnz_addr));
 
   // Compile loop body
   compile_node_list(loop_node->nodes());
 
-  // Jump back to the zero-check
-  void* const loop_body_end = _code_blob.get_current_entrypoint();
-
-  // 5 extra bytes for the jmp instruction itself
-  const int32_t relative_offset_to_zero_check = ((uintptr_t)loop_body_end - (uintptr_t)zero_check_start) + 5;
-
-  _assembler.jmp_imm32(-relative_offset_to_zero_check);
+  // Jump back to zero-check
+  _assembler.jmp_imm32(-(calculate_offset(zero_check_start) + 5));
 
   if (is_entry) {
-    // Only install the compiled method for the entry loop node
-    void* const method_end = _code_blob.get_current_entrypoint();
-    const size_t method_size = (uintptr_t)method_end - (uintptr_t)entrypoint;
-
+    // Only install the compiled method for entry loop nodes
+    const size_t method_size = calculate_offset(entrypoint);
     BFCompiledMethod* compiled_method = new BFCompiledMethod((CompiledMethod)entrypoint, method_size);
+
     if (_debug) {
       compiled_method->print_method(false);
     }
@@ -103,12 +99,7 @@ BFCompiledMethod* BFCompilerX86::compile_loop_node(BFLoopNode* loop_node, bool i
     return compiled_method;
   } else {
     assert(backpatch_jmp_addr != nullptr);
-
-    // Calculate the jmp offset for the backpatch
-    void* const nested_loop_end = _code_blob.get_current_entrypoint();
-    const int32_t relative_offset_to_jmp = (uintptr_t)nested_loop_end - (uintptr_t)backpatch_jmp_addr;
-
-    _assembler.jmp_imm32_backpatch(backpatch_jmp_addr, relative_offset_to_jmp);
+    _assembler.jmp_backpatch(backpatch_jmp_addr, calculate_offset(backpatch_jmp_addr));
     return nullptr;
   }
 }

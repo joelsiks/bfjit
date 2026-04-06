@@ -132,11 +132,39 @@ void AssemblerAArch64::b(int32_t imm26_offset) {
 }
 
 void AssemblerAArch64::b_backpatch(uint32_t* addr, int32_t imm26_offset) {
+  assert(check_no_invalid_bits_imm(imm26_offset, 26));
+
   // We've got a branch instruction at addr which needs to have its offset
   // updated (backpatched). The lower 26 bits represents the immediate, so
   // we mask out all other bits and OR in the new offset.
   const uint32_t mask = 0b111111 << 26;
   const uint32_t new_instruction = (*addr & mask) | truncate_to_size_imm(imm26_offset, 26);
+  *addr = new_instruction;
+}
+
+void AssemblerAArch64::cbnz32bit(Register Rt, int32_t imm19_offset) {
+  assert(check_no_invalid_bits_imm(imm19_offset, 19));
+
+  const uint32_t sf = 0b0 << 31;
+  const uint32_t opc = 0b011010 << 25;
+  const uint32_t op = 0b1 << 24;
+  const uint32_t imm = imm19_offset << 5;
+  const uint32_t rt_bits = (uint32_t)Rt;
+
+  const uint32_t instruction = sf | opc | op | imm | rt_bits;
+
+  _code_blob->emit_dword(instruction);
+}
+
+void AssemblerAArch64::cbnz_backpatch(uint32_t* addr, int32_t imm19_offset) {
+  assert(check_no_invalid_bits_imm(imm19_offset, 19));
+
+  // We've got a branch instruction at addr which needs to have its offset
+  // updated (backpatched). Bits [23:5] represents the immediate, so we mask
+  // out all other bits and OR in the new offset.
+
+  const uint32_t mask = (0b11111111 << 24) | 0b11111;
+  const uint32_t new_instruction = (*addr & mask) | (truncate_to_size_imm(imm19_offset, 19) << 5);
   *addr = new_instruction;
 }
 

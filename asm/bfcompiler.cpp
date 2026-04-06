@@ -53,6 +53,10 @@ void BFCompiler::compiler_thread_fn() {
   }
 }
 
+int32_t BFCompiler::calculate_offset(void* to) {
+  return (uintptr_t)_code_blob.get_current_entrypoint() - (uintptr_t)to;
+}
+
 BFCompiler::BFCompiler(size_t code_blob_size, bool start_compiler_thread, bool debug)
   : _compile_queue_lock(),
     _compile_queue_cv(),

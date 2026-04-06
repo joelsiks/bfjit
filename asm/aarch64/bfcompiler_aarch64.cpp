@@ -66,15 +66,14 @@ BFCompiledMethod* BFCompilerAArch64::compile_loop_node(BFLoopNode* loop_node, bo
 
   // Loop start/end condition check: If the check is true, i.e., the data at the
   // current data pointer is 0, then we don't jump and go straight to the return.
-  // TODO: We could probably use a "cbnz" instruction here instead of the tst.
   _assembler.ldrb_imm12(DataArrayRegister, AssemblerAArch64::Register::r0);
-  _assembler.tst32bit(AssemblerAArch64::Register::r0, AssemblerAArch64::Register::r0);
+  void* const zero_check_branch = _code_blob.get_current_entrypoint();
+  _assembler.cbnz32bit(AssemblerAArch64::Register::r0, 0 /* placeholder */);
 
   void* backpatch_b_addr = nullptr;
 
   if (is_entry) {
     // If this is the entry loop, just emit a return instruction to return back
-    _assembler.bcond(3, AssemblerAArch64::BranchCondition::NE);
     _assembler.mov(AssemblerAArch64::Register::r0, DataArrayRegister);
     _assembler.ret();
   } else {
@@ -82,26 +81,23 @@ BFCompiledMethod* BFCompilerAArch64::compile_loop_node(BFLoopNode* loop_node, bo
     // condition should jump to the instruction just after the current loop. We
     // achieve this by emitting an instruction and then "backpatching" it to jump
     // to the offset just after emitting the entire loop body.
-    _assembler.bcond(2, AssemblerAArch64::BranchCondition::NE);
     backpatch_b_addr = _code_blob.get_current_entrypoint();
-    _assembler.b(0); // Placeholder immediate
+    _assembler.b(0 /* placeholder */);
   }
+
+  _assembler.cbnz_backpatch((uint32_t*)zero_check_branch, calculate_offset(zero_check_branch) / InstructionSize);
 
   // Compile loop body
   compile_node_list(loop_node->nodes());
 
   // Jump back to the zero-check
-  void* const loop_body_end = _code_blob.get_current_entrypoint();
-  const int32_t relative_offset_to_zero_check = -((uintptr_t)loop_body_end - (uintptr_t)zero_check_start) / InstructionSize;
-
-  _assembler.b(relative_offset_to_zero_check);
+  _assembler.b(-calculate_offset(zero_check_start) / InstructionSize);
 
   if (is_entry) {
-    // Only install the compiled method for the entry loop node
-    void* const method_end = _code_blob.get_current_entrypoint();
-    const size_t method_size = (uintptr_t)method_end - (uintptr_t)entrypoint;
-
+    // Only install the compiled method for entry loop nodes
+    const size_t method_size = calculate_offset(entrypoint);
     BFCompiledMethod* compiled_method = new BFCompiledMethod((CompiledMethod)entrypoint, method_size);
+
     if (_debug) {
       compiled_method->print_method(false);
     }
@@ -109,12 +105,7 @@ BFCompiledMethod* BFCompilerAArch64::compile_loop_node(BFLoopNode* loop_node, bo
     return compiled_method;
   } else {
     assert(backpatch_b_addr != 0);
-
-    // Calculate the jmp offset for the backpatch
-    void* const nested_loop_end = _code_blob.get_current_entrypoint();
-    const int32_t relative_offset_to_b = ((uintptr_t)nested_loop_end - (uintptr_t)backpatch_b_addr) / InstructionSize;
-
-    _assembler.b_backpatch((uint32_t*)backpatch_b_addr, relative_offset_to_b);
+    _assembler.b_backpatch((uint32_t*)backpatch_b_addr, calculate_offset(backpatch_b_addr) / InstructionSize);
     return nullptr;
   }
 }

@@ -108,9 +108,9 @@ public:
   void cmp_mem8(Register reg, uint8_t immediate);
 
   void jmp_imm32(int32_t relative_offset);
-  void jnz_rel32(int32_t relative_offset);
+  void jnz_imm32(int32_t relative_offset);
 
-  void jmp_imm32_backpatch(void* jmp_instr_addr, int32_t relative_offset);
+  void jmp_backpatch(void* end_of_instr, int32_t relative_offset);
 
   void syscall();
 };

@@ -129,7 +129,7 @@ void AssemblerX86::jmp_imm32(int32_t relative_offset) {
   emit_immediate(immediate);
 }
 
-void AssemblerX86::jnz_rel32(int32_t relative_offset) {
+void AssemblerX86::jnz_imm32(int32_t relative_offset) {
   const uint8_t opcode_1 = 0x0F;
   const uint8_t opcode_0 = 0x85;
   const uint32_t immediate = twos_complement(relative_offset);
@@ -139,14 +139,12 @@ void AssemblerX86::jnz_rel32(int32_t relative_offset) {
   emit_immediate(immediate);
 }
 
-void AssemblerX86::jmp_imm32_backpatch(void* jmp_instr_addr, int32_t relative_offset) {
-  // jmp_instr_addr points to the end of the jmp instruction, so we need to "go
-  // back" the size of the instruction, which is 5 bytes, to get to the actual
-  // instruction. With that in mind, we just go back 4 bytes, since we want to
-  // patch the immediate.
+void AssemblerX86::jmp_backpatch(void* end_of_instr, int32_t relative_offset) {
+  // Go back 4 bytes from the end of the instruction and patch in the new immediate
+  // value representing the relative offset
 
   const uint32_t immediate = twos_complement(relative_offset);
-  char* const jmp_instr = (char*)jmp_instr_addr - 4;
+  char* const jmp_instr = (char*)end_of_instr - 4;
 
   *(jmp_instr + 0) = (uint8_t)(immediate >> 0);
   *(jmp_instr + 1) = (uint8_t)(immediate >> 8);

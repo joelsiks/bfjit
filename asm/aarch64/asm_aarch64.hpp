@@ -86,6 +86,9 @@ public:
   void b(int32_t imm26_offset);
   void b_backpatch(uint32_t* addr, int32_t imm26_offset);
 
+  void cbnz32bit(Register Rt, int32_t imm19_offset);
+  void cbnz_backpatch(uint32_t* addr, int32_t imm19_offset);
+
   void orr(Register Rm, Register Rd, Register Rn);
 
   void mov(Register Rd, Register Rn);
