@@ -25,6 +25,8 @@ public:
   CompiledMethod method() const;
   size_t bytes() const;
 
+  void clear_cache() const;
+
   void print_method(bool print_address) const;
 };
 

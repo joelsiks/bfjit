@@ -18,6 +18,16 @@ CompiledMethod BFCompiledMethod::method() const { return _compiled_method; }
 
 size_t BFCompiledMethod::bytes() const { return _bytes; }
 
+void BFCompiledMethod::clear_cache() const {
+  // If needed, this will clear the cache(s) to allow for the CPU to see the
+  // changes to the code that the JIT compiler has done.
+
+  char* begin = (char*)_compiled_method;
+  char* end = begin + _bytes;
+
+  __builtin___clear_cache(begin, end);
+}
+
 void BFCompiledMethod::print_method(bool print_address) const {
   printf("Compiled method %p size %zu:\n", _compiled_method, _bytes);
   for (size_t i = 0; i < _bytes; i++) {
@@ -49,6 +59,8 @@ void BFCompiler::compiler_thread_fn() {
 
     // Compile method
     BFCompiledMethod* compiled_method = compile_loop_node(loop_node, true);
+    compiled_method->clear_cache();
+
     loop_node->profile()->set_compiled_method(compiled_method);
   }
 }
