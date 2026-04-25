@@ -16,6 +16,8 @@ This project is a way for me to give myself practical insight into how to build 
 
 The "memory" in a Brainfuck program is represented by a long "tape" of cells, along with a "pointer" to the current cell. For simplicity I've decided to limit the memory to 30000 cells, which cannot be dynamically re-allocated inside JIT/AOT compiled code.
 
+As part of developing this I wrote a blog post on cache coherency, titled "JIT Compilers and Cache Coherency", available at: [https://joelsiks.com/posts/jit-compilers-and-cache-coherency/](https://joelsiks.com/posts/jit-compilers-and-cache-coherency/).
+
 ## Tiered Compilation
 
 In JIT mode, only loops are compiled (or candidates for compilation). Loops contain a body of instructions, which might be other loops as well.
